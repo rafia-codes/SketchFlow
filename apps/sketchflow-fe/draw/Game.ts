@@ -69,6 +69,7 @@ export class Game {
   private offsetX = 0;
   private offsetY = 0;
   private scale = 1;
+  private isLocked = false;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -84,6 +85,7 @@ export class Game {
     this.initHandlers();
     this.initMouseHandlers();
     this.points = [];
+    this.isLocked = false;
   }
 
   getMousePos(e: MouseEvent) {
@@ -94,9 +96,13 @@ export class Game {
     };
   }
 
+  setIsLocked(isLocked: boolean) {
+    this.isLocked = isLocked;
+  }
+
   setSelectedTool(tool: Tool) {
     this.selectedTool = tool;
-    this.canvas.style.cursor = tool == "hand" ? "grab" : "default";
+    this.canvas.style.cursor = tool == "hand" ? "grab" : "crosshair";
   }
 
   setScale(newScale: number) {
@@ -140,14 +146,21 @@ export class Game {
     this.ctx.fillStyle = "rgb(0,0,0)";
     this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-    this.ctx.setTransform(this.scale,0,0,this.scale,this.offsetX * this.scale,this.offsetY * this.scale);
+    this.ctx.setTransform(
+      this.scale,
+      0,
+      0,
+      this.scale,
+      this.offsetX * this.scale,
+      this.offsetY * this.scale,
+    );
 
     this.drawGrid();
 
     this.ctx.strokeStyle = "white";
 
     this.existingShapes.forEach((shape) => {
-      if(!shape)return;
+      if (!shape) return;
       if (shape.type === "rect") {
         this.ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
       } else if (shape.type === "ellipse") {
@@ -256,7 +269,7 @@ export class Game {
         type: "updated",
         roomId: this.roomId,
         shapes: this.existingShapes,
-        action: 'undo'
+        action: "undo",
       }),
     );
   }
@@ -276,7 +289,7 @@ export class Game {
         type: "updated",
         roomId: this.roomId,
         shapes: this.existingShapes,
-        action: 'redo'
+        action: "redo",
       }),
     );
   }
@@ -304,6 +317,7 @@ export class Game {
   };
 
   mouseUpHandler = (e: MouseEvent) => {
+    console.log(this.isLocked);
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = "grab";
@@ -334,7 +348,7 @@ export class Game {
         x: left,
         y: top,
         width,
-        height
+        height,
       };
     } else if (this.selectedTool === "ellipse") {
       shape = {
@@ -343,7 +357,7 @@ export class Game {
         centerX: centerX,
         centerY: centerY,
         radX,
-        radY
+        radY,
       };
     } else if (this.selectedTool === "diamond") {
       shape = {
@@ -354,7 +368,7 @@ export class Game {
         top: top,
         left: left,
         width,
-        height
+        height,
       };
     } else if (this.selectedTool === "line") {
       shape = {
@@ -363,36 +377,38 @@ export class Game {
         sX: this.startX,
         sY: this.startY,
         eX: endX,
-        eY: endY
+        eY: endY,
       };
     } else if (this.selectedTool === "pencil") {
       shape = {
         id: crypto.randomUUID(),
         type: "pencil",
-        points: this.points
+        points: this.points,
       };
     }
 
     if (!shape) return;
 
-    this.existingShapes.push(shape);
-    this.undoShapes = [];
+    if (!this.isLocked) {
+      this.existingShapes.push(shape);
+      this.undoShapes = [];
 
-    // this.socket.send(
-    //   JSON.stringify({
-    //     type: "chat",
-    //     message: JSON.stringify({ shape }),
-    //     roomId: this.roomId,
-    //   }),
-    // );
-    this.socket.send(
-      JSON.stringify({
-        type: "updated",
-        roomId: this.roomId,
-        shapes: this.existingShapes,
-        action: 'push'
-      }),
-    );
+      // this.socket.send(
+      //   JSON.stringify({
+      //     type: "chat",
+      //     message: JSON.stringify({ shape }),
+      //     roomId: this.roomId,
+      //   }),
+      // );
+      this.socket.send(
+        JSON.stringify({
+          type: "updated",
+          roomId: this.roomId,
+          shapes: this.existingShapes,
+          action: "push",
+        }),
+      );
+    }
 
     this.points = [];
     this.clearCanvas();

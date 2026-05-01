@@ -10,12 +10,13 @@ import {
   ZoomOut,
   Undo2,
   Redo2,
-  ArrowRight,
+  LockKeyholeOpen,
+  LockKeyhole
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 
-export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand"; //panning
+export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock"; //panning
 
 export function Canvas({
   roomId,
@@ -29,11 +30,13 @@ export function Canvas({
   const [selectedTool, setSelectedTool] = useState<Tool>("pencil");
   const [scale, setScale] = useState<number>(1);
   const router = useRouter();
+  const [isLocked,setIsLocked] = useState(false);
 
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
     game?.setScale(scale);
-  }, [selectedTool, game, scale]);
+    game?.setIsLocked(isLocked);
+  }, [selectedTool, game, scale, isLocked]);
 
   useEffect(() => {
     if (canvasref.current) {
@@ -123,6 +126,8 @@ export function Canvas({
         onZoomOut={onZoomOut}
         onRedo={onRedo}
         onUndo={onUndo}
+        isLocked={isLocked}
+        setIsLocked={setIsLocked}
       />
       <div className="absolute top-6 right-4 flex gap-3">
         <button
@@ -158,6 +163,8 @@ function Topbar({
   onZoomOut,
   onUndo,
   onRedo,
+  isLocked,
+  setIsLocked
 }: {
   selectedTool: Tool;
   setSelectedTool: (s: Tool) => void;
@@ -165,6 +172,8 @@ function Topbar({
   onZoomOut?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  isLocked: boolean;
+  setIsLocked: (s: boolean) => void
 }) {
   return (
     <div
@@ -184,6 +193,14 @@ function Topbar({
         gap: "8px",
       }}
     >
+      <ToolButton
+        active={isLocked}
+        onClick={() => isLocked?setIsLocked(false):setIsLocked(true)}
+        icon={isLocked?<LockKeyhole size={18} />:<LockKeyholeOpen size={18}/>}
+      />
+
+      <Divider/>
+
       <ToolButton
         active={selectedTool === "hand"}
         onClick={() => setSelectedTool("hand")}
