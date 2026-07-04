@@ -3,6 +3,7 @@ import { useRouter } from "next/navigation";
 import React, { useState, useEffect } from "react";
 import { httpapiClient } from "../lib/apiClient";
 import { Eye,EyeOff } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 interface AuthModalProps {
   mode: "signup" | "signin";
@@ -28,6 +29,7 @@ export default function AuthModal({
   } | null>(null);
   const [viewPassword, setViewPassword] = useState(false);
   const router = useRouter();
+  const { login } = useAuth();
 
   useEffect(() => {
     if (!open) {
@@ -71,12 +73,13 @@ export default function AuthModal({
 
       if (res.status == 200) {
         setMessage({ type: "success", text: res.data.message || "Success!" });
-        console.log(res);
-        localStorage.setItem("token", res.data.token);
+        console.log(76,res);
+        login(res.data.token);
         if (mode == "signin") setTimeout(() => router.push("/dashboard"), 1500);
         else setTimeout(() => router.push("/dashboard"), 1500);
       }
     } catch (err: any) {
+      console.log(err);
       if (err.response) {
         setMessage({
           type: "error",

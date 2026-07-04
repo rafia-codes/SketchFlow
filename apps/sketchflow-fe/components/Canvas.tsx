@@ -11,12 +11,14 @@ import {
   Undo2,
   Redo2,
   LockKeyholeOpen,
-  LockKeyhole
+  LockKeyhole,
+  ArrowBigRight,
+  ArrowRight
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 
-export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock"; //panning
+export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow"; //panning
 
 export function Canvas({
   roomId,
@@ -210,6 +212,11 @@ function Topbar({
         active={selectedTool === "pencil"}
         onClick={() => setSelectedTool("pencil")}
         icon={<Pencil size={18} />}
+      />
+      <ToolButton
+        active={selectedTool === "arrow"}
+        onClick={() => setSelectedTool("arrow")}
+        icon={<ArrowRight size={18} />}
       />
       <ToolButton
         active={selectedTool === "line"}

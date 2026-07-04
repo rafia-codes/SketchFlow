@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Plus, LogOut, Users, Calendar, Divide, DoorOpen } from "lucide-react";
 import { httpapiClient } from "../../lib/apiClient";
 import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Room {
   id: string;
@@ -13,7 +14,7 @@ interface Room {
 
 export default function Dashboard() {
   const [rooms, setRooms] = useState<any>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingRooms, setLoadingRooms] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
   const [showJoin, setShowJoin] = useState(false);
@@ -23,6 +24,7 @@ export default function Dashboard() {
     text: string;
   } | null>(null);
   const router = useRouter();
+  const {user,loading,logout} = useAuth();
 
   const getRooms = async () => {
     console.log(28,'before');
@@ -30,7 +32,7 @@ export default function Dashboard() {
     console.log(30, res);
     if (res.data.rooms?.length > 0) setRooms(res.data.rooms);
     console.log(31, rooms);
-    setLoading(false);
+    setLoadingRooms(false);
   };
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export default function Dashboard() {
 
   const handlelogout = async () => {
     const res = await httpapiClient.post("logout");
+    logout();
     router.push("/");
     console.log(res.data.message);
   };
@@ -63,6 +66,14 @@ export default function Dashboard() {
     const link = document.querySelector('#room-code')?.value;
     const roomId  = link.split('/')[3];
     router.push(`/canvas/${roomId}`);
+  }
+
+  if(loading)
+    return <>Loading...</>
+
+  if(!user){
+    router.push('/');
+    return null;
   }
 
   return (
@@ -102,7 +113,7 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {loading && (
+      {loadingRooms && (
         <div className="flex items-center justify-center justify-self-center place-items-center">
           Loading...
         </div>

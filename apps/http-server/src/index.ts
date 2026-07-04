@@ -61,7 +61,7 @@ app.post("/signup", async (req, res) => {
     //   secure: true,
     //   sameSite: "none",
     // });
-    console.log("yha cookie", res.cookie);
+    //console.log("yha cookie", res.cookie);
     return res.json({ message: "Registered successfully",token });
   } catch (error) {
     console.log("inside sign up catch",error);
@@ -91,9 +91,11 @@ app.post("/signin", async (req, res) => {
     //   secure: true,
     //   sameSite: "none",
     // });
+    console.log('line 98');
     return res.json({ message: "Logged-In successfully",token });
   } catch (error) {
-    return res.json({ message: "Internal Server Error" });
+    console.error("SIGNIN ERROR:", error);
+    return res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
@@ -110,8 +112,7 @@ app.post("/logout", async (req, res) => {
   }
 });
 
-app.get("/room", verifyUser, async (req, res) => {
-  //to get the rooms
+app.get("/room", verifyUser, async (req, res) => {//to get the rooms
   console.log("getting rooms");
   try {
     console.log("101");
@@ -130,8 +131,7 @@ app.get("/room", verifyUser, async (req, res) => {
   }
 });
 
-app.post("/room", verifyUser, async (req, res) => {
-  //to create a room
+app.post("/room", verifyUser, async (req, res) => {//to create a room
   try {
     console.log("room hit");
     const parsedData = RoomSchema.safeParse(req.body);
@@ -152,25 +152,18 @@ app.post("/room", verifyUser, async (req, res) => {
   }
 });
 
-app.get("/chats/:roomId", async (req, res) => {
-  //to get messages
-  console.log("getting chats");
-  const roomId = Number(req.params.roomId);
-  const messages = await prismaClient.chat.findMany({
-    where: {
-      roomId,
-    },
+app.delete("/chats/:roomId",async(req,res) => {//to delete messages
+  console.log('deleting all shapes');
+  const roomId = req.params.roomId;
+  await prismaClient.chat.deleteMany({
+    where:{
+      roomId
+    }
   });
-  const shapes = messages.map((message: any) => {
-    //return JSON.parse(message.message).shape;
-    return JSON.parse(message.message);
-  });
-  console.log(shapes);
-  return res.json({ shapes });
-});
+  return res.json({message:"Canvas reset"});
+})
 
-app.get("/room/:slug", async (req, res) => {
-  //returning roomId
+app.get("/room/:slug", async (req, res) => {//returning roomId
   const slug = req.params.slug;
   const room = await prismaClient.room.findFirst({
     where: {

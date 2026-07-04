@@ -2,119 +2,263 @@ import { WebSocketServer, WebSocket } from "ws";
 import jwt, { Jwt, JwtPayload } from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
+import { Client } from "./types/Client.js";
+import { Message } from "./types/Message.js";
 
 const wss = new WebSocketServer({ port: 8080 });
 
-interface User {
-  ws: WebSocket;
-  userId: string;
-}
+const clients = new Map<WebSocket, Client>();
+const rooms = new Map<string, Map<WebSocket, Client>>();
 
-const rooms : Map<string,Set<User>> = new Map(); //roomId --> set of Users
-
-// function gettokenfromCookie(cookie?: string) {
-//   if (!cookie) return null;
-
-//   let cookies = cookie.split(";");
-
-//   for (let cooki of cookies) {
-//     let [key, value] = cooki.trim().split("=");
-//     if (key === "token") return value;
-//   }
-//   return null;
-// }
-
-function checkUser(token: string): string | null {
+function checkClient(token: string): string | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET) as JwtPayload;
 
-    if (!payload || !payload.id) {
-      return null;
-    }
+    if (!payload || !payload.id) return null;
+
     return payload.id as string;
   } catch (error) {
     return null;
   }
 }
 
+function getClient(ws:WebSocket):Client | undefined{
+  return clients.get(ws);
+}
+
+function broadcastToRoom(ws: WebSocket,type: string, roomId: string, shape: object) {
+  if (!rooms.has(roomId)) return;
+
+  rooms.get(roomId)?.forEach((user, userws) => {
+    if(ws !== userws && userws.readyState ==  WebSocket.OPEN){
+      userws.send(
+      JSON.stringify({
+        type: type,
+        shape: shape,
+      }),
+    );
+    }
+  });
+}
+
 wss.on("listening", () => {
-  console.log("WebSocket server running");
+  console.log("WebSocket server live");
 });
 
-wss.on("connection", function connection(ws, request) {
-  let userId: string | null = null;
+wss.on("connection", (ws, request) => {
+  console.log("173 client connected");
+  let client: Client = {
+    ws,
+    userId: null,
+    authenticated: false,
+    rooms: new Set(),
+  };
+  clients.set(ws, client);
 
-  userId = "guest-" + crypto.randomUUID();
+  ws.on("message", async (data) => {
+    let parsedData: Message;
+    console.log(184, typeof data);
+    parsedData = JSON.parse(data.toString());
+    console.log(187, parsedData);
 
-  ws.on("message", async function message(data) {
-    let parsedData;
-    if (typeof data !== "string") {
-      parsedData = JSON.parse(data.toString());
-    } else {
-      parsedData = JSON.parse(data);
-    }
+    if(!parsedData.type)return;
 
-    if (parsedData.type === "auth" && parsedData.token) {
-      try {
-        const verified = checkUser(parsedData.token);
-        if (!verified) {
+    switch (parsedData.type) {
+      case "auth":
+        console.log("191 auth");
+        try {
+          const userId = checkClient(parsedData.token);
+          if (!userId) {
+            ws.close();
+            return;
+          }
+          client.authenticated = true;
+          client.userId = userId;
+        } catch (error) {
+          console.log(error);
           ws.close();
-          return;
         }
-        userId = verified;
-      } catch (error) {
-        ws.send(
-          JSON.stringify({ type: "auth_error", message: "Invalid token" }),
-        );
-        ws.close();
+        break;
+
+      case "join_room":
+        console.log("join_room");
+        try {
+          if (parsedData.roomId.startsWith("guest")) {
+            client.userId = "guest-" + crypto.randomUUID();
+            client.authenticated = true;
+            clients.set(ws, client);
+          }
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId))
+            rooms.set(parsedData.roomId, new Map());
+
+          rooms.get(parsedData.roomId)?.set(ws, client);
+          client.rooms.add(parsedData.roomId);
+
+          console.time("findMany");
+          const chats = await prismaClient.chat.findMany({
+            where: {
+              roomId: Number(parsedData.roomId),
+            },
+          });
+          console.timeEnd("findMany");
+
+          ws.send(
+            JSON.stringify({
+              type: "room_snapshot",
+              shapes: chats.map((chat:any) => JSON.parse(chat.message)),
+            }),
+          );
+          console.log("sent room snapshot");
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "leave_room":
+        try {
+          if (clients.has(ws)) clients.delete(ws);
+          if (
+            rooms.has(parsedData.roomId) &&
+            rooms.get(parsedData.roomId)?.has(ws)
+          )
+            rooms.get(parsedData.roomId)?.delete(ws);
+
+          ws.close();
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "shape:add":
+        try {
+          console.time("shape:add");
+          if (!client.authenticated) return;
+
+          if(!rooms.has(parsedData.roomId))return;
+
+          if(!rooms.get(parsedData.roomId)?.has(ws))return;
+
+          const roomId = parsedData.roomId;
+          const shape = parsedData.shape;
+
+          console.time("broadcast");
+          broadcastToRoom(ws,"shape:add", roomId, shape);
+          console.timeEnd("broadcast");
+          
+          console.time("db:write");
+          if (!roomId.startsWith("guest")) {
+            //storing in db
+            await prismaClient.chat.create({
+              data: {
+                shapeId: parsedData.shape.id,
+                roomId: Number(roomId),
+                message: JSON.stringify(shape),
+                userId: getClient(ws)?.userId,
+              },
+            });
+          }
+          console.timeEnd("db:write");
+          console.timeEnd("shape:add");
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "shape:delete":
+        try {
+          if (!client.authenticated) return;
+
+          if(!rooms.has(parsedData.roomId))return;
+
+          if(!rooms.get(parsedData.roomId)?.has(ws))return;
+
+          const roomId = parsedData.roomId;
+          const shape = parsedData.shape;
+
+          console.time("broadcast");
+          broadcastToRoom(ws,"shape:delete", roomId, shape);
+          console.timeEnd("broadcast");
+          
+          console.time("db:delete");
+          if (!roomId.startsWith("guest")) {
+            //storing in db
+            await prismaClient.chat.delete({
+              where: {
+                shapeId: parsedData.shape.id 
+              },
+            });
+          }
+          console.timeEnd("db:delete");
+          console.timeEnd("shape:add");
+
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "shape:update":
+        try {
+          if (!client.authenticated) return;
+
+          if(!rooms.has(parsedData.roomId))return;
+
+          if(!rooms.get(parsedData.roomId)?.has(ws))return;
+
+          const roomId = parsedData.roomId;
+          const shape = parsedData.shape;
+
+          console.time("broadcast");
+          broadcastToRoom(ws,"shape:update", roomId, shape);
+          console.timeEnd("broadcast");
+          
+          console.time("db:update");
+          if (!roomId.startsWith("guest")) {
+            //storing in db
+            await prismaClient.chat.update({
+              where:{
+                shapeId: parsedData.shape.id
+              },
+              data: {
+                message: JSON.stringify(shape),
+              },
+            });
+          }
+          console.timeEnd("db:update");
+          console.timeEnd("shape:add");
+
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "history:undo":
+        try {
+          if (!client.authenticated) return;
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+
+      case "history:redo":
+        try {
+          if (!client.authenticated) return;
+        } catch (error) {
+          console.log(error);
+        }
+        break;
+    }
+  });
+
+  ws.on("close", () => {
+    const existingrooms = getClient(ws)?.rooms;
+    if (existingrooms)
+      for (let room of existingrooms) {
+        rooms.get(room)?.delete(ws);
+
+        if (rooms.get(room)?.size == 0) rooms.delete(room);
       }
-    }
-
-    if (parsedData.type === "join_room") {
-    const roomUsers = rooms.get(parsedData.roomId) || new Set<User>();
-    roomUsers.add({ ws, userId: userId! });
-    rooms.set(parsedData.roomId, roomUsers);
-    }
-
-    if (parsedData.type === "leave_room") {
-      const roomUsers = rooms.get(parsedData.roomId);
-      if(roomUsers){
-        roomUsers.forEach((u)=>{
-          if(u.ws === ws)
-            roomUsers.delete(u);
-        });
-        if(roomUsers.size == 0)rooms.delete(parsedData.roomId);
-      }
-      ws.close();
-    }
-
-    if (parsedData.type === "updated") {
-      const roomId = parsedData.roomId;
-      const shapes = parsedData.shapes;
-      const shape = JSON.stringify(shapes[shapes.length - 1]);
-
-      if (
-        parsedData.action == "push" &&
-        shapes.length > 0 &&
-        !roomId.startsWith("guest-")
-      ) {
-        await prismaClient.chat.create({
-          data: {
-            roomId: Number(roomId),
-            message: shape,
-            userId: userId,
-          },
-        });
-      }
-
-      rooms.get(roomId)?.forEach((user) => {
-        user.ws.send(JSON.stringify({
-          type: "updated",
-              roomId,
-              shapes,
-        }))
-      })
-
-    }
+    clients.delete(ws);
   });
 });

@@ -1,4 +1,3 @@
-import getExistingShapes from "./http";
 import { Tool } from "../components/Canvas";
 
 type Points = {
@@ -81,7 +80,6 @@ export class Game {
     this.undoShapes = [];
     this.socket = socket;
     this.clicked = false;
-    this.init();
     this.initHandlers();
     this.initMouseHandlers();
     this.points = [];
@@ -159,7 +157,7 @@ export class Game {
 
     this.ctx.strokeStyle = "white";
 
-    this.existingShapes.forEach((shape) => {
+    this.existingShapes?.forEach((shape) => {
       if (!shape) return;
       if (shape.type === "rect") {
         this.ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
@@ -207,37 +205,53 @@ export class Game {
     });
   }
 
-  async init() {
-    const shapes = await getExistingShapes(this.roomId);
-    this.existingShapes = shapes ?? [];
+  private addShape(shape:Shape){
+    this.existingShapes.push(shape);
     this.clearCanvas();
   }
 
-  // initHandlers() {
-  //   this.socket.onmessage = (e) => {
-  //     const message = JSON.parse(e.data);
+  private findShape(shapeId:string): Shape | undefined{
+    return this.existingShapes.find(shape => shape.id === shapeId);
+  }
 
-  //     if (message.type === "chat") {
-  //       const parsedShape = JSON.parse(message.message);
-  //       this.existingShapes.push(parsedShape.shape);
-  //       this.clearCanvas();
-  //       this.undoShapes = [];
-  //     }
+  private updateShape(shapeId:string,updatedShape:Partial<Shape>){
+    const idx = this.existingShapes.findIndex(shape => shape.id == shapeId);
+    if(idx == -1)return;
 
-  //     if (message.type === "updateShapes" || message.type === "updated") {
-  //       this.existingShapes = message.shapes;
-  //       this.clearCanvas();
-  //     }
-  //   };
-  // }
+    this.existingShapes[idx] = {...this.existingShapes[idx],...updatedShape} as Shape;
+  }
+
+  private deleteShape(shapeId:string){
+    const idx = this.existingShapes.findIndex(shape => shape.id == shapeId);
+    if(idx == -1)return;
+
+    this.existingShapes.splice(idx,1);
+    this.clearCanvas();
+  }
 
   initHandlers() {
     this.socket.onmessage = (e) => {
       const message = JSON.parse(e.data);
-
-      if (message.type === "updated") {
-        this.existingShapes = message.shapes;
-        this.clearCanvas();
+      console.log(e.data);
+      switch (message.type) {
+        case "room_snapshot":
+          console.log('got room snapshot');
+          console.log(this.existingShapes);
+          this.existingShapes = message.shapes.map((shape:any)=>{
+            return JSON.parse(shape.message);
+          });
+          console.log(this.existingShapes);
+          this.clearCanvas();
+          break;
+        case "shape:add":
+          this.addShape(message.shape);
+          break;
+        case "shape:update":
+          this.updateShape(message.shape.id,message.shape);
+          break;
+        case "shape:delete":
+          this.deleteShape(message.shape.id);
+          break;
       }
     };
   }
@@ -257,18 +271,19 @@ export class Game {
   undo() {
     if (this.existingShapes.length === 0) return;
 
-    const shape = this.existingShapes.pop();
+    const shape = this.existingShapes[this.existingShapes.length - 1];
     if (!shape) return;
 
+    this.deleteShape(shape.id);
     this.undoShapes.push(shape);
 
     this.clearCanvas();
 
     this.socket.send(
       JSON.stringify({
-        type: "updated",
+        type: "history:undo",
         roomId: this.roomId,
-        shapes: this.existingShapes,
+        shape: shape.id,
         action: "undo",
       }),
     );
@@ -280,16 +295,16 @@ export class Game {
     const shape = this.undoShapes.pop();
     if (!shape) return;
 
-    this.existingShapes.push(shape);
+    this.addShape(shape);
 
     this.clearCanvas();
 
     this.socket.send(
       JSON.stringify({
-        type: "updated",
+        type: "history:redo",
         roomId: this.roomId,
-        shapes: this.existingShapes,
-        action: "redo",
+        shapes: shape,
+        action: "push",
       }),
     );
   }
@@ -390,28 +405,21 @@ export class Game {
     if (!shape) return;
 
     if (!this.isLocked) {
-      this.existingShapes.push(shape);
+      this.addShape(shape);
       this.undoShapes = [];
 
-      // this.socket.send(
-      //   JSON.stringify({
-      //     type: "chat",
-      //     message: JSON.stringify({ shape }),
-      //     roomId: this.roomId,
-      //   }),
-      // );
+      console.log(this.socket.readyState);
       this.socket.send(
         JSON.stringify({
-          type: "updated",
+          type: "shape:add",
           roomId: this.roomId,
-          shapes: this.existingShapes,
-          action: "push",
+          shape: shape,
         }),
       );
+      console.log('sent shape 398');
     }
 
     this.points = [];
-    this.clearCanvas();
   };
 
   mouseMoveHandler = (e: MouseEvent) => {
@@ -477,6 +485,10 @@ export class Game {
       this.ctx.lineTo(endX, endY);
       this.ctx.stroke();
       this.points.push({ x: endX, y: endY });
+    } else if(this.selectedTool === "arrow") {
+      this.ctx.beginPath();
+      this.ctx.moveTo(this.startX,this.startY);
+      
     }
   };
 }
