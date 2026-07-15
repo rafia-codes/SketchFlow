@@ -12,7 +12,6 @@ import { prismaClient } from "@repo/db/client";
 import jwt from "jsonwebtoken";
 import cors from "cors";
 import cookieParser from "cookie-parser";
-import "dotenv/config";
 
 declare global {
   namespace Express {

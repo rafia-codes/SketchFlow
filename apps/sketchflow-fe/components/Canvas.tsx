@@ -13,12 +13,14 @@ import {
   LockKeyholeOpen,
   LockKeyhole,
   ArrowBigRight,
-  ArrowRight
+  ArrowRight,
+  TextCursor,
+  MousePointer
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 
-export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow"; //panning
+export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
 export function Canvas({
   roomId,
@@ -29,7 +31,7 @@ export function Canvas({
 }) {
   const canvasref = useRef<HTMLCanvasElement>(null);
   const [game, setGame] = useState<Game>();
-  const [selectedTool, setSelectedTool] = useState<Tool>("pencil");
+  const [selectedTool, setSelectedTool] = useState<Tool>("select");
   const [scale, setScale] = useState<number>(1);
   const router = useRouter();
   const [isLocked,setIsLocked] = useState(false);
@@ -202,6 +204,12 @@ function Topbar({
       />
 
       <Divider/>
+
+      <ToolButton
+        active={selectedTool === "select"}
+        onClick={() => setSelectedTool("select")}
+        icon={<MousePointer size={18} />}
+      />
 
       <ToolButton
         active={selectedTool === "hand"}

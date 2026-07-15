@@ -1,11 +1,22 @@
+type Color = string;
+
 interface BaseShape {
       id: string;
-      strokeColor: string;
-      strokeWidth: string;
-      strokeStyle: string;
-      fillColor: string;
-      fillStyle: string; //solid-dashed-cross-hatch 
-      opacity: string;
+
+      strokeColor: Color;
+      fillColor: Color;
+
+      strokeWidth: number;
+
+      strokeStyle: "solid" | "dashed" | "dotted";
+      fillStyle: "solid" | "cross-hatch" | "hachure"; 
+
+      opacity: number;
+
+      rotation: number;
+
+      locked: boolean;
+      createdBy: string;
 }
 
 type Points = {
@@ -53,4 +64,12 @@ interface Pencil extends BaseShape{
       points: Array<Points>;
 };
 
-export type Shape = Rect | Ellipse | Diamond | Line | Pencil;
+interface Arrow extends BaseShape{
+      type: "arrow";
+      eX: number;
+      eY: number;
+      sX: number;
+      sY: number;
+}
+
+export type Shape = Rect | Ellipse | Diamond | Line | Pencil | Arrow;

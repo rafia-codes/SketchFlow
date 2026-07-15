@@ -31,12 +31,14 @@ function broadcastToRoom(ws: WebSocket,type: string, roomId: string, shape: obje
 
   rooms.get(roomId)?.forEach((user, userws) => {
     if(ws !== userws && userws.readyState ==  WebSocket.OPEN){
-      userws.send(
-      JSON.stringify({
-        type: type,
-        shape: shape,
-      }),
-    );
+      
+        userws.send(
+          JSON.stringify({
+            type: type,
+            shape: shape,
+            userId: clients.get(ws)?.userId
+          }),
+        );
     }
   });
 }
@@ -86,7 +88,6 @@ wss.on("connection", (ws, request) => {
           if (parsedData.roomId.startsWith("guest")) {
             client.userId = "guest-" + crypto.randomUUID();
             client.authenticated = true;
-            clients.set(ws, client);
           }
           if (!client.authenticated) return;
 
@@ -102,6 +103,7 @@ wss.on("connection", (ws, request) => {
               roomId: Number(parsedData.roomId),
             },
           });
+          console.log(chats);
           console.timeEnd("findMany");
 
           ws.send(
@@ -130,6 +132,26 @@ wss.on("connection", (ws, request) => {
           console.log(error);
         }
         break;
+
+      case "shape:preview":
+        try {
+          if(!client.authenticated)return;
+          
+          if(!rooms.has(parsedData.roomId))return;
+
+          if(!rooms.get(parsedData.roomId)?.has(ws))return;
+
+          const roomId = parsedData.roomId;
+          const shape = parsedData.shape;
+
+          console.time("broadcast");
+          broadcastToRoom(ws,"shape:preview", roomId, shape);
+          console.timeEnd("broadcast");
+
+        } catch (error) {
+          console.log(error);
+        }
+      break;
 
       case "shape:add":
         try {

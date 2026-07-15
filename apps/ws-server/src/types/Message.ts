@@ -10,7 +10,7 @@ export type Message = {
     type: "leave_room",
     roomId : string,
 } | {
-    type: "shape:add" | "shape:delete" | "shape:update" | "history:undo" | "history:redo",
+    type: "shape:preview" | "shape:add" | "shape:delete" | "shape:update" | "history:undo" | "history:redo",
     roomId : string,
     shape : Shape
 }
