@@ -1,59 +1,5 @@
 import { Tool } from "../components/Canvas";
-
-type Points = {
-  x: number;
-  y: number;
-};
-
-type BaseShape =
-  | {
-      type: "rect";
-      x: number;
-      y: number;
-      width: number;
-      height: number;
-    }
-  | {
-      type: "ellipse";
-      radX: number;
-      radY: number;
-      centerX: number;
-      centerY: number;
-    }
-  | {
-      type: "diamond";
-      centerX: number;
-      centerY: number;
-      width: number;
-      height: number;
-      top: number;
-      left: number;
-    }
-  | {
-      type: "line";
-      sX: number;
-      sY: number;
-      eX: number;
-      eY: number;
-    }
-  | {
-      type: "pencil";
-      points: Array<Points>;
-    }
-  | {
-      type: "hand";
-    }
-  | {
-      type: "arrow";
-      sX: number;
-      sY: number;
-      eX: number;
-      eY: number;
-    };
-
-type Shape = BaseShape & {
-  id: string;
-};
+import { Shape , BaseShape } from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -81,6 +27,10 @@ export class Game {
   private lastPreviewPoint: { x: number; y: number };
   private readonly PREVIEW_INTERVAL = 33;
   private selectedShapeId: string | null;
+  private isDragging = false;
+  private dragX = 0;
+  private dragY = 0;
+  private isResizing = false;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -119,7 +69,7 @@ export class Game {
 
   setSelectedTool(tool: Tool) {
     this.selectedTool = tool;
-    this.canvas.style.cursor = tool == "hand" ? "grab" : "crosshair";
+    this.canvas.style.cursor = tool == "hand" ? "grab" : tool == "select"? "default" : "crosshair";
   }
 
   setScale(newScale: number) {
@@ -130,6 +80,7 @@ export class Game {
 
   private shapeSelection(id: string | null){
     this.selectedShapeId = id;
+    this.currentShape = null;
     this.needsRender = true;
   }
 
@@ -574,6 +525,69 @@ export class Game {
     }
   }
 
+  private moveSelectedShape(dx: number, dy : number){
+    const shape = this.selectedShapeId? this.findShape(this.selectedShapeId) : null;
+
+    if(!shape)return;
+
+    switch(shape.type){
+      case "rect":
+        shape.x += dx;
+        shape.y += dy;
+      break;
+
+      case "ellipse":
+        shape.centerX += dx;
+        shape.centerY += dy;
+      break;
+
+      case "diamond":
+        shape.left += dx;
+        shape.top += dy;
+        shape.centerX += dx;
+        shape.centerY += dy;
+      break;
+
+      case "line":
+        shape.sX += dx;
+        shape.sY += dy;
+        shape.eX += dx;
+        shape.eY += dy;
+      break;
+
+      case "arrow":
+        shape.sX += dx;
+        shape.sY += dy;
+        shape.eX += dx;
+        shape.eY += dy;
+      break;
+
+      case "pencil":
+        for(const p of shape.points){
+          p.x += dx;
+          p.y += dy;
+        }
+      break;
+    }
+    this.needsRender = true;
+  }
+
+  private deleteSelectedShape(){
+    if(!this.selectedShapeId)return;
+
+    this.deleteShape(this.selectedShapeId);
+
+    if(this.socket.readyState == WebSocket.OPEN){
+      this.socket.send(JSON.stringify({
+        type: "shape:delete",
+        roomId: this.roomId,
+        shape: { id: this.selectedShapeId}
+      }));
+    }
+
+    this.selectedShapeId = null;
+  }
+
   mouseDownHandler = (e: MouseEvent) => {
     if (this.selectedTool === "hand") {
       this.isPanning = true;
@@ -588,11 +602,18 @@ export class Game {
 
     if(this.selectedTool === 'select'){
       const shape = this.findShapeAtPoint(x,y);
-      
-      if(shape)
+      this.isDragging = true;
+
+      if(shape){
         this.shapeSelection(shape.id);
+        this.isDragging = true;
+        this.dragX = x;
+        this.dragY = y;
+      }
       else
         this.shapeSelection(null);
+
+      return;
     }
 
     this.clicked = true;
@@ -682,6 +703,20 @@ export class Game {
       return;
     }
 
+    if(this.isDragging){
+      this.isDragging = false;
+      const shape = this.findShape(this.selectedShapeId!);
+
+      if(shape && this.socket.readyState == WebSocket.OPEN){
+        this.socket.send(JSON.stringify({
+          type: "shape:update",
+          roomId: this.roomId,
+          shape 
+        }));
+      }
+      return;
+    }
+
     this.clicked = false;
 
     if (!this.currentShape) return;
@@ -726,9 +761,22 @@ export class Game {
       return;
     }
 
-    if (!this.clicked) return;
-
     const { x: endX, y: endY } = this.getMousePos(e);
+
+    if(this.isDragging){
+      this.canvas.style.cursor = "move";
+
+      const dx = endX - this.dragX;
+      const dy = endY - this.dragY;
+
+      this.moveSelectedShape(dx,dy);
+
+      this.dragX = endX;
+      this.dragY = endY;
+      return;
+    }
+
+    if (!this.clicked) return;
 
     const dx = endX - this.lastPreviewPoint.x;
     const dy = endY - this.lastPreviewPoint.y;
@@ -801,7 +849,6 @@ export class Game {
     this.needsRender = true;
 
     if (this.currentShape) {
-      console.time("send msg over socket");
       const now = performance.now();
 
       if (now - this.lastPreviewSent >= this.PREVIEW_INTERVAL) {
@@ -817,8 +864,6 @@ export class Game {
           );
         }
       }
-
-      console.timeEnd("send msg over socket");
     }
   };
 }

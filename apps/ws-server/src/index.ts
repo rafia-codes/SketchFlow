@@ -92,6 +92,7 @@ wss.on("connection", (ws, request) => {
 
         case "join_room":
           console.log("join_room");
+          //const label = `findMany ${crypto.randomUUID}`;
           try {
             if (parsedData.roomId.startsWith("guest")) {
               client.userId = "guest-" + crypto.randomUUID();
@@ -105,7 +106,7 @@ wss.on("connection", (ws, request) => {
             rooms.get(parsedData.roomId)?.set(ws, client);
             client.rooms.add(parsedData.roomId);
 
-            console.time("findMany");
+            //console.time(label);
             const chats = await prismaClient.chat.findMany({
               where: {
                 roomId: Number(parsedData.roomId),
@@ -115,7 +116,6 @@ wss.on("connection", (ws, request) => {
               },
             });
             console.log(chats);
-            console.timeEnd("findMany");
 
             ws.send(
               JSON.stringify({
@@ -126,6 +126,8 @@ wss.on("connection", (ws, request) => {
             console.log("sent room snapshot");
           } catch (error) {
             console.log(error);
+          } finally {
+            //console.timeEnd(label);
           }
           break;
 
@@ -155,17 +157,18 @@ wss.on("connection", (ws, request) => {
             const roomId = parsedData.roomId;
             const shape = parsedData.shape;
 
-            console.time("broadcast");
+            //console.time("broadcast");
             broadcastToRoom(ws, "shape:preview", roomId, shape);
-            console.timeEnd("broadcast");
+            //console.timeEnd("broadcast");
           } catch (error) {
             console.log(error);
           }
           break;
 
         case "shape:add":
+          //const label = `shape:add ${crypto.randomUUID}`;
           try {
-            console.time("shape:add");
+            //console.time("shape:add");
             if (!client.authenticated) return;
 
             if (!rooms.has(parsedData.roomId)) return;
@@ -175,11 +178,11 @@ wss.on("connection", (ws, request) => {
             const roomId = parsedData.roomId;
             const shape = parsedData.shape;
 
-            console.time("broadcast");
+            //console.time("broadcast");
             broadcastToRoom(ws, "shape:add", roomId, shape);
-            console.timeEnd("broadcast");
+            //console.timeEnd("broadcast");
 
-            console.time("db:write");
+            //console.time("db:write");
             if (!roomId.startsWith("guest")) {
               //storing in db
               await prismaClient.chat.create({
@@ -191,8 +194,8 @@ wss.on("connection", (ws, request) => {
                 },
               });
             }
-            console.timeEnd("db:write");
-            console.timeEnd("shape:add");
+            //console.timeEnd("db:write");
+            //console.timeEnd("shape:add");
           } catch (error) {
             console.log(error);
           }
@@ -220,21 +223,21 @@ wss.on("connection", (ws, request) => {
               return;
             }
 
-            console.time("broadcast");
-            broadcastToRoom(ws, "shape:delete", roomId, parsedData.shape);
-            console.timeEnd("broadcast");
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shape:delete", roomId, { id : parsedData.shape.id } as Shape);
+            //console.timeEnd("broadcast");
 
-            console.time("db:delete");
+            //console.time("db:delete");
             if (!roomId.startsWith("guest")) {
-              //storing in db
+              //deleting in db
               await prismaClient.chat.delete({
                 where: {
                   shapeId: parsedData.shape.id,
                 },
               });
             }
-            console.timeEnd("db:delete");
-            console.timeEnd("shape:add");
+            //console.timeEnd("db:delete");
+            //console.timeEnd("shape:add");
           } catch (error) {
             console.log(error);
           }
@@ -263,13 +266,13 @@ wss.on("connection", (ws, request) => {
               return;
             }
 
-            console.time("broadcast");
+            //console.time("broadcast");
             broadcastToRoom(ws, "shape:update", roomId, updatedShape);
-            console.timeEnd("broadcast");
+            //console.timeEnd("broadcast");
 
-            console.time("db:update");
+            //console.time("db:update");
             if (!roomId.startsWith("guest")) {
-              //storing in db
+              //updating in db
               await prismaClient.chat.update({
                 where: {
                   shapeId: parsedData.shape.id,
@@ -279,8 +282,8 @@ wss.on("connection", (ws, request) => {
                 },
               });
             }
-            console.timeEnd("db:update");
-            console.timeEnd("shape:add");
+            //console.timeEnd("db:update");
+            //console.timeEnd("shape:add");
           } catch (error) {
             console.log(error);
           }
