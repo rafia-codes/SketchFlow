@@ -10,7 +10,6 @@ export class Game {
   private undoShapes: Shape[];
   private startX = 0;
   private startY = 0;
-  private clicked: boolean;
   private selectedTool: Tool = "rect";
   private isPanning = false;
   private panX = 0;
@@ -27,10 +26,24 @@ export class Game {
   private lastPreviewPoint: { x: number; y: number };
   private readonly PREVIEW_INTERVAL = 33;
   private selectedShapeId: string | null;
-  private isDragging = false;
-  private dragX = 0;
-  private dragY = 0;
-  private isResizing = false;
+  private interaction : 
+    | "idle"
+    | "drawing"
+    | "moving"
+    | "resizing"
+    = "idle";
+  private dragStart = {
+    x:0,
+    y:0
+  };
+  private resizeHandle:
+  | "tl"
+  | "tr"
+  | "bl"
+  | "br"
+  | null = null;
+  private SELECTION_PADDING = 5;
+  private HANDLE_SIZE = 8;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -41,7 +54,6 @@ export class Game {
     this.existingShapes = [];
     this.undoShapes = [];
     this.socket = socket;
-    this.clicked = false;
     this.initHandlers();
     this.initMouseHandlers();
     this.isLocked = false;
@@ -69,6 +81,11 @@ export class Game {
 
   setSelectedTool(tool: Tool) {
     this.selectedTool = tool;
+    if(this.selectedTool !== 'select'){
+      this.selectedShapeId = null;
+      this.interaction = 'idle';
+      this.needsRender = true;
+    }
     this.canvas.style.cursor = tool == "hand" ? "grab" : tool == "select"? "default" : "crosshair";
   }
 
@@ -92,11 +109,29 @@ export class Game {
 
     if(shape.type == 'rect'){
       this.ctx.strokeRect(
-        shape.x - 5 ,
-        shape.y - 5 ,
-        shape.width + 10 ,
-        shape.height + 10
+        shape.x - this.SELECTION_PADDING ,
+        shape.y - this.SELECTION_PADDING,
+        shape.width + 2 * this.SELECTION_PADDING ,
+        shape.height + 2 * this.SELECTION_PADDING
       );
+
+      const handles = [
+        { x: shape.x - this.SELECTION_PADDING, y: shape.y - this.SELECTION_PADDING, dir: "tl"},
+        { x: shape.x + shape.width + this.SELECTION_PADDING, y: shape.y - this.SELECTION_PADDING, dir: "tr"},
+        { x: shape.x - this.SELECTION_PADDING, y: shape.y + shape.height + this.SELECTION_PADDING, dir: "bl"},
+        { x: shape.x + shape.width + this.SELECTION_PADDING, y: shape.y + shape.height + this.SELECTION_PADDING, dir: "br"}
+      ];
+
+      this.ctx.fillStyle = "#3b82f6";
+
+      handles.map(h => {
+        this.ctx.fillRect(
+        h.x - this.HANDLE_SIZE/2,
+        h.y - this.HANDLE_SIZE/2,
+        this.HANDLE_SIZE,
+        this.HANDLE_SIZE
+      );
+      })
     }
     else if (shape.type == "ellipse"){
       this.ctx.beginPath();
@@ -259,6 +294,37 @@ export class Game {
 
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
+
+  private normalizeRect(x1:number,y1:number,x2:number,y2:number){
+    return {
+      x: Math.min(x1,x2),
+      y: Math.min(y1,y2),
+      width: Math.abs(x2-x1),
+      height: Math.abs(y2-y1)
+    };
+  }
+
+  private isOnResizeHandle(shape: Shape,x:number,y:number):"tl" | "tr" | "bl" | "br" | null{
+    if(!shape)return null;
+    if(shape.type !== 'rect')return null;
+
+    const p = this.SELECTION_PADDING;
+    const s = this.HANDLE_SIZE / this.scale;
+
+     const handles = {
+        tl: { x: shape.x - p, y: shape.y - p },
+        tr: { x: shape.x + shape.width + p, y: shape.y - p },
+        bl: { x: shape.x - p, y: shape.y + shape.height + p },
+        br: { x: shape.x + shape.width + p, y: shape.y + shape.height + p },
+    };
+
+    for(const key of ["tl","tr","bl","br"] as const){
+      const h = handles[key];
+
+      if(Math.abs(x - h.x) <= s && Math.abs(y - h.y) <= s)return key;
+    }
+    return null;
+}
 
   private findShapeAtPoint(x:number,y:number){
     for(let i = this.existingShapes.length - 1; i >=0 ;i--){
@@ -600,23 +666,31 @@ export class Game {
 
     const { x, y } = this.getMousePos(e);
 
-    if(this.selectedTool === 'select'){
-      const shape = this.findShapeAtPoint(x,y);
-      this.isDragging = true;
+    if (this.selectedTool === "select") {
+      const shape = this.findShapeAtPoint(x, y);
 
-      if(shape){
-        this.shapeSelection(shape.id);
-        this.isDragging = true;
-        this.dragX = x;
-        this.dragY = y;
-      }
-      else
+      if (!shape) {
         this.shapeSelection(null);
+        this.interaction = "idle";
+        return;
+      }
+
+      this.shapeSelection(shape.id);
+
+      const handle = this.isOnResizeHandle(shape, x, y);
+
+      if (handle) {
+        this.interaction = "resizing";
+        this.resizeHandle = handle;
+      } else {
+        this.interaction = "moving";
+        this.dragStart = { x, y };
+      }
 
       return;
     }
 
-    this.clicked = true;
+    this.interaction = 'drawing';
     this.startX = x;
     this.startY = y;
 
@@ -696,15 +770,14 @@ export class Game {
   };
 
   mouseUpHandler = (e: MouseEvent) => {
-    console.log(this.isLocked);
+  
     if (this.isPanning) {
       this.isPanning = false;
       this.canvas.style.cursor = "grab";
       return;
     }
 
-    if(this.isDragging){
-      this.isDragging = false;
+    if(this.interaction === 'moving' || this.interaction === 'resizing'){
       const shape = this.findShape(this.selectedShapeId!);
 
       if(shape && this.socket.readyState == WebSocket.OPEN){
@@ -714,12 +787,18 @@ export class Game {
           shape 
         }));
       }
+
+      this.interaction = 'idle';
+      this.resizeHandle = null;
+      this.canvas.style.cursor = "default";
       return;
     }
 
-    this.clicked = false;
-
-    if (!this.currentShape) return;
+    if (!this.currentShape){
+      this.interaction = 'idle';
+      this.selectedShapeId = null;
+      return;
+    } 
 
     const shape = this.currentShape;
 
@@ -741,7 +820,9 @@ export class Game {
         );
       }
       console.log("sent shape 398");
-      this.currentShape = null;
+      this.currentShape=null;
+      this.interaction="idle";
+      this.selectedShapeId=null;
     }
 
   };
@@ -763,20 +844,107 @@ export class Game {
 
     const { x: endX, y: endY } = this.getMousePos(e);
 
-    if(this.isDragging){
-      this.canvas.style.cursor = "move";
+    if (this.selectedTool === "select" && this.interaction === "idle") {
+        const shape = this.findShapeAtPoint(endX, endY);
 
-      const dx = endX - this.dragX;
-      const dy = endY - this.dragY;
+        if (!shape) {
+            this.canvas.style.cursor = "default";
+        } else {
+            const handle = this.isOnResizeHandle(shape, endX, endY);
 
-      this.moveSelectedShape(dx,dy);
+            if (handle === "tl" || handle === "br")
+                this.canvas.style.cursor = "nwse-resize";
+            else if (handle === "tr" || handle === "bl")
+                this.canvas.style.cursor = "nesw-resize";
+            else
+                this.canvas.style.cursor = "move";
+        }
+    }
 
-      this.dragX = endX;
-      this.dragY = endY;
+    if(this.selectedTool==="select" && this.interaction == 'resizing'){
+      const shape = this.findShape(this.selectedShapeId!);
+
+      if(!shape) return;
+
+      const handle = this.isOnResizeHandle(shape,endX,endY);
+
+        if(handle){
+
+          if(handle==="br" || handle==="tl")
+            this.canvas.style.cursor="nwse-resize";
+
+          else
+            this.canvas.style.cursor="nesw-resize";
+
+        }
+        else{
+          this.canvas.style.cursor="default";
+        }
+
+      if(shape.type === 'rect'){
+        const right = shape.x + shape.width;
+        const bottom = shape.y + shape.height;
+
+        switch(this.resizeHandle){
+          case "br":
+            shape.width = endX - shape.x;
+            shape.height = endY - shape.y;
+            this.canvas.style.cursor="nwse-resize";
+            break;
+
+          case "bl":
+            shape.x = endX;
+            shape.width = right - endX;
+            shape.height = endY - shape.y;
+            this.canvas.style.cursor="nesw-resize";
+            break;
+
+          case "tr":
+            shape.y = endY;
+            shape.height = bottom - endY;
+            shape.width = endX - shape.x;
+            break;
+
+          case "tl":
+            shape.x = endX;
+            shape.y = endY;
+            shape.width = right - endX;
+            shape.height = bottom - endY;
+            break;
+        }
+
+         if(shape.width < 0){
+          shape.x += shape.width;
+          shape.width = Math.abs(shape.width);
+        }
+
+        if(shape.height < 0){
+          shape.y += shape.height;
+          shape.height = Math.abs(shape.height);
+        }
+      }
+
+      this.needsRender = true;
       return;
     }
 
-    if (!this.clicked) return;
+    if(this.interaction == "moving"){
+      this.canvas.style.cursor = "move";
+
+      const dx = endX - this.dragStart.x;
+      const dy = endY - this.dragStart.y;
+
+      this.moveSelectedShape(dx,dy);
+
+      this.dragStart = {
+        x: endX,
+        y: endY
+      };
+
+      return;
+    }
+
+    if (this.interaction != 'drawing') return;
 
     const dx = endX - this.lastPreviewPoint.x;
     const dy = endY - this.lastPreviewPoint.y;

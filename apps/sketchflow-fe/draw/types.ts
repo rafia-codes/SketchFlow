@@ -52,21 +52,3 @@ export type BaseShape =
 export type Shape = BaseShape & {
   id: string;
 };
-
-export type ResizeHandle =
-  | "tl"
-  | "tm"
-  | "tr"
-  | "ml"
-  | "mr"
-  | "bl"
-  | "bm"
-  | "br"
-  | "start"
-  | "end";
-
-export type Handle = {
-    type : ResizeHandle,
-    x : number,
-    y : number
-}
