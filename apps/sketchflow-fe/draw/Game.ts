@@ -139,7 +139,9 @@ export class Game {
           this.HANDLE_SIZE,
         );
       });
-    } else if (shape.type == "ellipse") {
+    } 
+    
+    else if (shape.type == "ellipse") {
       this.ctx.beginPath();
 
       const left = shape.centerX - shape.radX;
@@ -180,44 +182,149 @@ export class Game {
           this.HANDLE_SIZE,
         );
       }
-    } else if (shape.type == "diamond") {
+    } 
+    
+    else if (shape.type == "diamond") {
+      const left = shape.left;
+      const top = shape.top;
+      const width = shape.width;
+      const height = shape.height;
+
       this.ctx.strokeRect(
-        shape.left - 5,
-        shape.top - 5,
-        shape.width + 10,
-        shape.height + 10,
+        left - this.SELECTION_PADDING,
+        top - this.SELECTION_PADDING,
+        width + 2 * this.SELECTION_PADDING,
+        height + 2 * this.SELECTION_PADDING,
       );
-    } else if (shape.type == "line") {
-      const minX = Math.min(shape.eX, shape.sX);
-      const minY = Math.min(shape.eY, shape.sY);
+
+      const handles = [
+        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
+        {
+          x: left + width + this.SELECTION_PADDING,
+          y: top - this.SELECTION_PADDING,
+        },
+        {
+          x: left - this.SELECTION_PADDING,
+          y: top + height + this.SELECTION_PADDING,
+        },
+        {
+          x: left + width + this.SELECTION_PADDING,
+          y: top + height + this.SELECTION_PADDING,
+        },
+      ];
+
+      this.ctx.fillStyle = "#3b82f6";
+
+      for (const h of handles) {
+        this.ctx.fillRect(
+          h.x - this.HANDLE_SIZE / 2,
+          h.y - this.HANDLE_SIZE / 2,
+          this.HANDLE_SIZE,
+          this.HANDLE_SIZE,
+        );
+      }
+    } 
+    
+    else if (shape.type == "line") {
+      const left = Math.min(shape.sX, shape.eX);
+      const top = Math.min(shape.sY, shape.eY);
 
       const width = Math.abs(shape.eX - shape.sX);
       const height = Math.abs(shape.eY - shape.sY);
 
-      this.ctx.strokeRect(minX - 5, minY - 5, width + 10, height + 10);
-    } else if (shape.type == "arrow") {
-      const minX = Math.min(shape.eX, shape.sX);
-      const minY = Math.min(shape.eY, shape.sY);
+       this.ctx.strokeRect(
+          left - this.SELECTION_PADDING,
+          top - this.SELECTION_PADDING,
+          width + this.SELECTION_PADDING * 2,
+          height + this.SELECTION_PADDING * 2
+        );
 
+
+        const handles = [
+          {x:left-this.SELECTION_PADDING, y:top-this.SELECTION_PADDING},
+          {x:left+width+this.SELECTION_PADDING, y:top-this.SELECTION_PADDING},
+          {x:left-this.SELECTION_PADDING, y:top+height+this.SELECTION_PADDING},
+          {x:left+width+this.SELECTION_PADDING, y:top+height+this.SELECTION_PADDING}
+        ];
+
+
+        this.ctx.fillStyle="#3b82f6";
+
+        for(const h of handles){
+          this.ctx.fillRect(
+            h.x-this.HANDLE_SIZE/2,
+            h.y-this.HANDLE_SIZE/2,
+            this.HANDLE_SIZE,
+            this.HANDLE_SIZE
+          );
+        }
+    } 
+    
+    else if (shape.type == "arrow") {
+      const left = Math.min(shape.sX, shape.eX);
+      const top = Math.min(shape.sY, shape.eY);
       const width = Math.abs(shape.eX - shape.sX);
       const height = Math.abs(shape.eY - shape.sY);
 
-      this.ctx.strokeRect(minX - 5, minY - 5, width + 10, height + 10);
-    } else if (shape.type == "pencil") {
-      const xS = shape.points.map((p) => p.x);
-      const yS = shape.points.map((p) => p.y);
+      this.ctx.strokeRect(
+        left - this.SELECTION_PADDING,
+        top - this.SELECTION_PADDING,
+        width + this.SELECTION_PADDING * 2,
+        height + this.SELECTION_PADDING * 2
+      );
 
-      const minX = Math.min(...xS);
-      const minY = Math.min(...yS);
-      const maxX = Math.max(...xS);
-      const maxY = Math.max(...yS);
+      const handles = [
+        {x:left-this.SELECTION_PADDING, y:top-this.SELECTION_PADDING},
+        {x:left+width+this.SELECTION_PADDING, y:top-this.SELECTION_PADDING},
+        {x:left-this.SELECTION_PADDING, y:top+height+this.SELECTION_PADDING},
+        {x:left+width+this.SELECTION_PADDING, y:top+height+this.SELECTION_PADDING}
+      ];
+
+      this.ctx.fillStyle="#3b82f6";
+
+      for(const h of handles){
+        this.ctx.fillRect(
+          h.x-this.HANDLE_SIZE/2,
+          h.y-this.HANDLE_SIZE/2,
+          this.HANDLE_SIZE,
+          this.HANDLE_SIZE
+        );
+      }
+    }
+    
+    else if (shape.type == "pencil") {
+      const xs = shape.points.map(p => p.x);
+      const ys = shape.points.map(p => p.y);
+
+      const left = Math.min(...xs);
+      const top = Math.min(...ys);
+      const width = Math.max(...xs) - left;
+      const height = Math.max(...ys) - top;
 
       this.ctx.strokeRect(
-        minX - 5,
-        minY - 5,
-        maxX - minX + 10,
-        maxY - minY + 10,
+        left - this.SELECTION_PADDING,
+        top - this.SELECTION_PADDING,
+        width + this.SELECTION_PADDING * 2,
+        height + this.SELECTION_PADDING * 2
       );
+
+      const handles = [
+        {x:left-this.SELECTION_PADDING,y:top-this.SELECTION_PADDING},
+        {x:left+width+this.SELECTION_PADDING,y:top-this.SELECTION_PADDING},
+        {x:left-this.SELECTION_PADDING,y:top+height+this.SELECTION_PADDING},
+        {x:left+width+this.SELECTION_PADDING,y:top+height+this.SELECTION_PADDING}
+      ];
+
+      this.ctx.fillStyle="#3b82f6";
+
+      for(const h of handles){
+        this.ctx.fillRect(
+          h.x-this.HANDLE_SIZE/2,
+          h.y-this.HANDLE_SIZE/2,
+          this.HANDLE_SIZE,
+          this.HANDLE_SIZE
+        );
+      }
     }
 
     this.ctx.restore();
@@ -251,26 +358,13 @@ export class Game {
     this.ctx.stroke();
   }
 
-  private isPointOnRect(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "rect" }>,
-  ): boolean {
+  private isPointOnRect(x: number,y: number,shape: Extract<Shape, { type: "rect" }>): boolean {
     const padding = 5 / this.scale;
 
-    return (
-      shape.x - padding <= x &&
-      x <= shape.x + shape.width + padding &&
-      shape.y - padding <= y &&
-      y <= shape.y + shape.height + padding
-    );
+    return (shape.x - padding <= x && x <= shape.x + shape.width + padding && shape.y - padding <= y && y <= shape.y + shape.height + padding);
   }
 
-  private isPointOnEllipse(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "ellipse" }>,
-  ): boolean {
+  private isPointOnEllipse(x: number,y: number,shape: Extract<Shape, { type: "ellipse" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = x - shape.centerX;
@@ -282,11 +376,7 @@ export class Game {
     return (dx * dx) / (rX * rX) + (dy * dy) / (rY * rY) <= 1;
   }
 
-  private isPointOnDiamond(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "diamond" }>,
-  ): boolean {
+  private isPointOnDiamond(x: number,y: number,shape: Extract<Shape, { type: "diamond" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = Math.abs(x - shape.centerX);
@@ -298,11 +388,7 @@ export class Game {
     return dx / halfWidth + dy / halfHeight <= 1;
   }
 
-  private isPointOnLine(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "line" }>,
-  ): boolean {
+  private isPointOnLine(x: number,y: number,shape: Extract<Shape, { type: "line" }>): boolean {
     const padding = 5 / this.scale;
 
     const minX = Math.min(shape.sX, shape.eX) - padding;
@@ -313,11 +399,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnArrow(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "arrow" }>,
-  ): boolean {
+  private isPointOnArrow(x: number,y: number,shape: Extract<Shape, { type: "arrow" }>): boolean {
     const padding = 5 / this.scale;
 
     const minX = Math.min(shape.sX, shape.eX) - padding;
@@ -328,11 +410,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnPencil(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "pencil" }>,
-  ): boolean {
+  private isPointOnPencil(x: number,y: number,shape: Extract<Shape, { type: "pencil" }>): boolean {
     const padding = 5 / this.scale;
 
     const xs = shape.points.map((p) => p.x);
@@ -346,11 +424,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isOnResizeHandle(
-    shape: Shape,
-    x: number,
-    y: number,
-  ): "tl" | "tr" | "bl" | "br" | null {
+  private isOnResizeHandle(shape: Shape,x: number,y: number): "tl" | "tr" | "bl" | "br" | null {
     let left: number;
     let top: number;
     let width: number;
@@ -366,7 +440,30 @@ export class Game {
       top = shape.centerY - shape.radY;
       width = shape.radX * 2;
       height = shape.radY * 2;
-    } else {
+    } else if (shape.type === "diamond") {
+      left = shape.left;
+      top = shape.top;
+      width = shape.width;
+      height = shape.height;
+    }else if (shape.type === "line") {
+      left = Math.min(shape.sX, shape.eX);
+      top = Math.min(shape.sY, shape.eY);
+      width = Math.abs(shape.eX - shape.sX);
+      height = Math.abs(shape.eY - shape.sY);
+    }else if (shape.type === "arrow") {
+      left = Math.min(shape.sX, shape.eX);
+      top = Math.min(shape.sY, shape.eY);
+      width = Math.abs(shape.eX - shape.sX);
+      height = Math.abs(shape.eY - shape.sY);
+    }else if(shape.type === "pencil") {
+      const xs = shape.points.map(p=>p.x);
+      const ys = shape.points.map(p=>p.y);
+
+      left = Math.min(...xs);
+      top = Math.min(...ys);
+      width = Math.max(...xs)-left;
+      height = Math.max(...ys)-top;
+    }else {
       return null;
     }
 
@@ -987,7 +1084,9 @@ export class Game {
           shape.y += shape.height;
           shape.height = Math.abs(shape.height);
         }
-      } else if (shape.type === "ellipse") {
+      } 
+      
+      else if (shape.type === "ellipse") {
         const left = shape.centerX - shape.radX;
         const top = shape.centerY - shape.radY;
         const right = shape.centerX + shape.radX;
@@ -1028,6 +1127,182 @@ export class Game {
         shape.centerY = (newTop + newBottom) / 2;
         shape.radX = (newRight - newLeft) / 2;
         shape.radY = (newBottom - newTop) / 2;
+      }
+
+      else if (shape.type === "diamond") {
+
+        const right = shape.left + shape.width;
+        const bottom = shape.top + shape.height;
+
+        switch(this.resizeHandle){
+
+          case "br":
+            shape.width = endX - shape.left;
+            shape.height = endY - shape.top;
+            break;
+
+          case "bl":
+            shape.width = right - endX;
+            shape.left = endX;
+            shape.height = endY - shape.top;
+            break;
+
+          case "tr":
+            shape.width = endX - shape.left;
+            shape.top = endY;
+            shape.height = bottom - endY;
+            break;
+
+          case "tl":
+            shape.left = endX;
+            shape.top = endY;
+            shape.width = right - endX;
+            shape.height = bottom - endY;
+            break;
+        }
+
+        if(shape.width < 0){
+          shape.left += shape.width;
+          shape.width = Math.abs(shape.width);
+        }
+
+        if(shape.height < 0){
+          shape.top += shape.height;
+          shape.height = Math.abs(shape.height);
+        }
+
+        shape.centerX = shape.left + shape.width / 2;
+        shape.centerY = shape.top + shape.height / 2;
+      }
+
+      else if(shape.type === "line") {
+
+          const left = Math.min(shape.sX, shape.eX);
+          const right = Math.max(shape.sX, shape.eX);
+          const top = Math.min(shape.sY, shape.eY);
+          const bottom = Math.max(shape.sY, shape.eY);
+
+        switch(this.resizeHandle){
+
+          case "tl":
+            if(Math.abs(shape.sX-left)<Math.abs(shape.eX-left)){
+              shape.sX=endX;
+              shape.sY=endY;
+            }
+            else{
+              shape.eX=endX;
+              shape.eY=endY;
+            }
+            break;
+
+          case "tr":
+            if(Math.abs(shape.sX-right)<Math.abs(shape.eX-right)){
+              shape.sX=endX;
+              shape.sY=endY;
+            }
+            else{
+              shape.eX=endX;
+              shape.eY=endY;
+            }
+            break;
+
+          case "bl":
+            if(Math.abs(shape.sX-left)<Math.abs(shape.eX-left)){
+              shape.sX=endX;
+              shape.sY=endY;
+            }
+            else{
+              shape.eX=endX;
+              shape.eY=endY;
+            }
+            break;
+
+          case "br":
+            if(Math.abs(shape.sX-right)<Math.abs(shape.eX-right)){
+              shape.sX=endX;
+              shape.sY=endY;
+            }
+            else{
+              shape.eX=endX;
+              shape.eY=endY;
+            }
+            break;
+        }
+      }
+
+      else if(shape.type === "arrow") {
+
+      const left = Math.min(shape.sX, shape.eX);
+      const right = Math.max(shape.sX, shape.eX);
+      const top = Math.min(shape.sY, shape.eY);
+      const bottom = Math.max(shape.sY, shape.eY);
+
+      switch(this.resizeHandle){
+        case "tl":
+        case "tr":
+        case "bl":
+        case "br":
+
+          if(Math.abs(shape.sX-left) < Math.abs(shape.eX-left)){
+            shape.sX=endX;
+            shape.sY=endY;
+          }
+          else{
+            shape.eX=endX;
+            shape.eY=endY;
+          }
+          break;
+      }
+      }
+
+      else if(shape.type === "pencil") {
+        const xs = shape.points.map(p=>p.x);
+        const ys = shape.points.map(p=>p.y);
+
+        const oldLeft = Math.min(...xs);
+        const oldTop = Math.min(...ys);
+        const oldRight = Math.max(...xs);
+        const oldBottom = Math.max(...ys);
+
+        let newLeft = oldLeft;
+        let newTop = oldTop;
+        let newRight = oldRight;
+        let newBottom = oldBottom;
+
+        switch(this.resizeHandle){
+          case "tl":
+            newLeft=endX;
+            newTop=endY;
+            break;
+
+          case "tr":
+            newRight=endX;
+            newTop=endY;
+            break;
+
+          case "bl":
+            newLeft=endX;
+            newBottom=endY;
+            break;
+
+          case "br":
+            newRight=endX;
+            newBottom=endY;
+            break;
+        }
+
+        const newWidth = newRight-newLeft;
+        const newHeight = newBottom-newTop;
+
+        const oldWidth = oldRight-oldLeft;
+        const oldHeight = oldBottom-oldTop;
+
+        for(const p of shape.points){
+          const nx = oldWidth === 0? 0: (p.x-oldLeft)/oldWidth;
+          const ny =oldHeight === 0? 0: (p.y-oldTop)/oldHeight;
+          p.x = newLeft + nx*newWidth;
+          p.y = newTop + ny*newHeight;
+        }
       }
 
       this.needsRender = true;
