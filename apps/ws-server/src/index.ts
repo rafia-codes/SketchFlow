@@ -292,6 +292,105 @@ wss.on("connection", (ws, request) => {
         case "history:undo":
           try {
             if (!client.authenticated) return;
+
+            if (!rooms.has(parsedData.roomId)) return;
+
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+            const roomId = parsedData.roomId;
+            const action = parsedData.action;
+
+            console.log('received undo action');
+
+            switch(action.type){
+              case "add":
+                //@ts-ignore
+                broadcastToRoom(ws, "shape:delete", roomId, { id : parsedData.action.shape.id } as Shape);
+
+                if(roomId.startsWith("guest"))return;
+
+                const existing = await prismaClient.chat.findUnique({
+                  where: {
+                    //@ts-ignore
+                    shapeId: parsedData.action.shape.id,
+                  },
+                });
+
+                if (!existing) return;
+
+                if (existing.roomId !== Number(roomId)) {
+                  return;
+                }
+
+                
+                await prismaClient.chat.delete({
+                  where: {
+                    //@ts-ignore
+                    shapeId: parsedData.action.shape.id,
+                  },
+                });
+
+                break;
+              
+              case "delete":
+                broadcastToRoom(ws,"shape:add",roomId,action.shape);
+
+                if(roomId.startsWith("guest"))return;
+
+                const alreadyInDb = await prismaClient.chat.findUnique({
+                    where:{
+                        shapeId: action.shape.id
+                    }
+                });
+
+                if(alreadyInDb) return;
+                
+                await prismaClient.chat.create({
+                  data: {
+                    //@ts-ignore
+                    shapeId: parsedData.action.shape.id,
+                    roomId: Number(roomId),
+                    //@ts-ignore
+                    message: JSON.stringify(parsedData.action.shape),
+                    userId: getClient(ws)?.userId,
+                  },
+                });
+                
+                break;
+
+              case "update":
+                broadcastToRoom(ws,"shape:update",roomId,action.before);
+
+                if(roomId.startsWith("guest"))return;
+
+                const exists = await prismaClient.chat.findUnique({
+                  where: {
+                    //@ts-ignore
+                    shapeId: parsedData.action.before.id,
+                  },
+                });
+
+                if (!exists) return;
+
+                if (exists.roomId !== Number(roomId)) {
+                  return;
+                }
+
+                
+                await prismaClient.chat.update({
+                  where: {
+                    //@ts-ignore
+                    shapeId: parsedData.action.before.id,
+                  },
+                  data: {
+                    //@ts-ignore
+                    message: JSON.stringify(parsedData.action.before),
+                  },
+                });
+
+                break;
+            }
+
           } catch (error) {
             console.log(error);
           }
@@ -300,13 +399,102 @@ wss.on("connection", (ws, request) => {
         case "history:redo":
           try {
             if (!client.authenticated) return;
+
+            if (!rooms.has(parsedData.roomId)) return;
+
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+            const roomId = parsedData.roomId;
+            const action = parsedData.action;
+
+            switch(action.type){
+              case "add":
+                broadcastToRoom(ws, "shape:add", roomId, action.shape);
+
+                const alreadyexists = await prismaClient.chat.findUnique({
+                    where:{
+                        shapeId: action.shape.id
+                    }
+                });
+
+                if(alreadyexists) return;
+
+                if (!roomId.startsWith("guest")) {
+                //storing in db
+                await prismaClient.chat.create({
+                  data: {
+                    //@ts-ignore
+                    shapeId: action.shape.id,
+                    roomId: Number(roomId),
+                    message: JSON.stringify(action.shape),
+                    userId: getClient(ws)?.userId,
+                  },
+                });
+                }
+            break;
+
+            case "delete":
+                  broadcastToRoom(ws, "shape:delete", roomId, { id : action.shape.id } as Shape);
+
+                  if (roomId.startsWith("guest"))return;
+
+                  const existing = await prismaClient.chat.findUnique({
+                    where: {
+                      shapeId: action.shape.id,
+                    },
+                  });
+
+                  if (!existing) return;
+
+                  if (existing.roomId !== Number(roomId)) {
+                    return;
+                  }
+                   
+                  //deleting in db
+                  await prismaClient.chat.delete({
+                    where: {
+                      shapeId: action.shape.id,
+                    },
+                  });
+                  
+              break;
+
+            case "update":
+              broadcastToRoom(ws, "shape:update", roomId, action.after);
+
+              if (roomId.startsWith("guest"))return;
+
+              const exists = await prismaClient.chat.findUnique({
+                  where: {
+                    shapeId: action.before.id,
+                  },
+                });
+
+                if (!exists) return;
+
+                if (exists.roomId !== Number(roomId)) {
+                  return;
+                }
+
+                //updating in db
+                await prismaClient.chat.update({
+                  where: {
+                    shapeId: action.before.id,
+                  },
+                  data: {
+                    message: JSON.stringify(action.after),
+                  },
+                });
+              break;
+
+            }
           } catch (error) {
             console.log(error);
           }
           break;
       }
     } catch (error) {
-      console.log(278);
+      console.log(480);
       console.log(error);
     }
   });

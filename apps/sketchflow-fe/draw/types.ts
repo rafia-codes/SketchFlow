@@ -17,6 +17,21 @@ export type ShapeStyle = {
   opacity: number;//done
 }
 
+export type HistoryAction =
+  | {
+      type: "add";
+      shape: Shape;
+    }
+  | {
+      type: "delete";
+      shape: Shape;
+    }
+  | {
+      type: "update";
+      before: Shape;
+      after: Shape;
+    };
+
 export type BaseShape =
   | {
       type: "rect";

@@ -1,5 +1,5 @@
 import { Tool } from "../components/Canvas";
-import { Shape, ShapeStyle } from "./types";
+import { Shape, ShapeStyle, HistoryAction } from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -7,7 +7,8 @@ export class Game {
   private roomId: string;
   private socket: WebSocket;
   private existingShapes: Shape[];
-  private undoShapes: Shape[];
+  private undoStack: HistoryAction[];
+  private redoStack: HistoryAction[];
   private startX = 0;
   private startY = 0;
   private selectedTool: Tool = "rect";
@@ -44,6 +45,8 @@ export class Game {
 
   private  opacity: number = 1;
 
+  private initialShape : Shape | null = null;
+
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
@@ -51,7 +54,8 @@ export class Game {
     this.ctx.lineJoin = "round";
     this.roomId = roomId;
     this.existingShapes = [];
-    this.undoShapes = [];
+    this.undoStack = [];
+    this.redoStack = [];
     this.socket = socket;
     this.initHandlers();
     this.initMouseHandlers();
@@ -770,6 +774,7 @@ export class Game {
           this.updateShape(received.shape.id, received.shape);
           break;
         case "shape:delete":
+          console.log('delete shape',received.shape.id);
           this.deleteShape(received.shape.id);
           break;
       }
@@ -793,46 +798,65 @@ export class Game {
   undo() {
     if (this.existingShapes.length === 0) return;
 
-    const shape = this.existingShapes[this.existingShapes.length - 1];
-    if (!shape) return;
+    const lastAction = this.undoStack.pop();
+    if(!lastAction)return;
 
-    this.deleteShape(shape.id);
-    this.undoShapes.push(shape);
+    if(lastAction.type == "add"){
+      this.deleteShape(lastAction.shape.id);
+    }
+    else if(lastAction.type == "delete"){
+      this.addShape(lastAction.shape);
+    }
+    else{
+      this.updateShape(lastAction.before.id,lastAction.before);
+    }
 
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
+      console.log(`sending undo`, lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:undo",
           roomId: this.roomId,
-          shape: shape.id,
-          action: "undo",
+          action: lastAction,
         }),
       );
     }
+
+    this.redoStack.push(structuredClone(lastAction));
   }
 
   redo() {
-    if (this.undoShapes.length === 0) return;
+    if (this.redoStack.length === 0) return;
 
-    const shape = this.undoShapes.pop();
-    if (!shape) return;
+    const lastAction = this.redoStack.pop();
+    if(!lastAction)return;
 
-    this.addShape(shape);
-
+    if(lastAction.type == "add"){
+      this.addShape(lastAction.shape);
+    }
+    else if(lastAction.type == "delete"){
+      this.deleteShape(lastAction.shape.id);
+    }
+    else{
+      this.updateShape(lastAction.before.id,lastAction.after);
+    }
+    
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
+      console.log("sending redo", lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:redo",
           roomId: this.roomId,
-          shapes: shape,
-          action: "push",
+          action: lastAction,
         }),
       );
     }
+
+    this.undoStack.push(structuredClone(lastAction));
   }
 
   private moveSelectedShape(dx: number, dy: number) {
@@ -887,7 +911,14 @@ export class Game {
   private deleteSelectedShape() {
     if (!this.selectedShapeId) return;
 
+    const shapeToBeDeleted = this.findShape(this.selectedShapeId);
+
     this.deleteShape(this.selectedShapeId);
+    this.undoStack.push({
+      type: "delete",
+      shape: structuredClone(shapeToBeDeleted)!
+    });
+    this.redoStack = [];
 
     if (this.socket.readyState == WebSocket.OPEN) {
       this.socket.send(
@@ -916,6 +947,8 @@ export class Game {
 
     if (this.selectedTool === "select") {
       let shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
+
+      this.initialShape = shape? structuredClone(shape): null;
 
       const resizeShape = shape ? this.isOnResizeHandle(shape, x, y) : null;
 
@@ -1036,6 +1069,13 @@ export class Game {
     if (this.interaction === "moving" || this.interaction === "resizing") {
       const shape = this.findShape(this.selectedShapeId!);
 
+      this.undoStack.push({
+        type:"update",
+        before: this.initialShape!,
+        after: structuredClone(shape)!
+      });
+      this.redoStack = [];
+
       if (shape && this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
@@ -1065,7 +1105,11 @@ export class Game {
     if (!this.isLocked) {
       this.previewshapes.delete("self");
       this.addShape(shape);
-      this.undoShapes = [];
+      this.undoStack.push({
+        type: "add",
+        shape: structuredClone(shape)
+      });
+      this.redoStack = [];
 
       console.log(this.socket.readyState);
       if (this.socket.readyState == WebSocket.OPEN) {

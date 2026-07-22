@@ -1,5 +1,20 @@
 import { Shape } from "./Shape.js"
 
+export type HistoryAction =
+  | {
+      type: "add";
+      shape: Shape;
+    }
+  | {
+      type: "delete";
+      shape: Shape;
+    }
+  | {
+      type: "update";
+      before: Shape;
+      after: Shape;
+    };
+
 export type Message = {
     type: "auth",
     token: string
@@ -10,7 +25,11 @@ export type Message = {
     type: "leave_room",
     roomId : string,
 } | {
-    type: "shape:preview" | "shape:add" | "shape:delete" | "shape:update" | "history:undo" | "history:redo",
+    type: "shape:preview" | "shape:add" | "shape:delete" | "shape:update";
     roomId : string,
     shape : Shape
+} | {
+    type : "history:undo" | "history:redo",
+    roomId : string,
+    action : HistoryAction
 }

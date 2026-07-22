@@ -192,12 +192,12 @@ export function Canvas({
             onChange={setFillColor}
             allowTransparent
           />
-          <SegRow
+          {/* <SegRow
             label="Fill"
             options={FILL_STYLES as unknown as readonly string[]}
             value={fillStyle}
             onChange={(v) => setFillStyle(v as typeof fillStyle)}
-          />
+          /> */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-2">Stroke width</p>
             <div className="flex gap-1 p-1 rounded-lg bg-muted">
