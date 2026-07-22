@@ -3,6 +3,20 @@ export type Points = {
   y: number;
 };
 
+type Color = string;
+
+export type ShapeStyle = {
+  strokeColor: Color;//done
+  fillColor: Color;//done
+
+  strokeWidth: number;//done
+
+  strokeStyle: "solid" | "dashed" | "dotted";//done
+  fillStyle: "solid" | "cross-hatch" | "hachure"; 
+
+  opacity: number;//done
+}
+
 export type BaseShape =
   | {
       type: "rect";
@@ -49,6 +63,6 @@ export type BaseShape =
       eY: number;
     };
 
-export type Shape = BaseShape & {
+export type Shape = BaseShape & ShapeStyle & {
   id: string;
 };
