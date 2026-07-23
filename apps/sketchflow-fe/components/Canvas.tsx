@@ -14,9 +14,12 @@ import {
   LockKeyhole,
   ArrowRight,
   MousePointer,
+  CopyPlus,
+  Trash2
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
+import { cursorTo } from "readline";
 
 export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
@@ -35,6 +38,7 @@ export function Canvas({
 }) {
   const canvasref = useRef<HTMLCanvasElement>(null);
   const [game, setGame] = useState<Game>();
+  const [shapeSelected,setShapeSelected] = useState(false);
   const [selectedTool, setSelectedTool] = useState<Tool>("select");
   const [scale, setScale] = useState<number>(1);
   const router = useRouter();
@@ -64,6 +68,7 @@ export function Canvas({
 
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
+    game?.setSelectionListener(setShapeSelected);
     game?.setScale(scale);
     game?.setIsLocked(isLocked);
     game?.setFillColor(fillColor);
@@ -83,6 +88,7 @@ export function Canvas({
     strokeStyle,
     strokeWidth,
     opacity,
+
   ]);
 
   useEffect(() => {
@@ -153,6 +159,15 @@ export function Canvas({
     else router.push("/dashboard");
   };
 
+  const onDuplicate = () => {
+    console.log('duplicating');
+    game?.duplicateShape();
+  }
+
+  const onDelete = () => {
+    game?.deleteSelectedShape();
+  }
+
   return (
     <div
       style={{
@@ -168,6 +183,7 @@ export function Canvas({
       ></canvas>
       <Topbar
         setSelectedTool={setSelectedTool}
+        shapeSelected={shapeSelected}
         selectedTool={selectedTool}
         onZoomIn={onZoomIn}
         onZoomOut={onZoomOut}
@@ -175,10 +191,12 @@ export function Canvas({
         onUndo={onUndo}
         isLocked={isLocked}
         setIsLocked={setIsLocked}
+        onDelete={onDelete}
+        onDuplicate={onDuplicate}
       />
       
        {primaryTools.includes(selectedTool) && 
-       <aside className="absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-xl shadow-foreground/5 space-y-4 max-h-[80vh] overflow-y-auto">
+       <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
           <SwatchRow
             label="Stroke"
             colors={STROKE_COLORS}
@@ -199,8 +217,8 @@ export function Canvas({
             onChange={(v) => setFillStyle(v as typeof fillStyle)}
           /> */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Stroke width</p>
-            <div className="flex gap-1 p-1 rounded-lg bg-muted">
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Stroke width</p>
+            <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
               {STROKE_WIDTHS.map((w) => (
                 <button
                   key={w}
@@ -208,12 +226,12 @@ export function Canvas({
                   aria-label={`${w}px`}
                   className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
                     strokeWidth === w
-                      ? "bg-card ring-1 ring-primary/40"
-                      : "hover:bg-card/60"
+                      ? "bg-gray-900 ring-1 ring-amber-600"
+                      : "hover:bg-muted/60"
                   }`}
                 >
                   <span
-                    className="w-8 rounded-full bg-foreground"
+                    className="w-8 rounded-full bg-white"
                     style={{ height: w }}
                   />
                 </button>
@@ -221,8 +239,8 @@ export function Canvas({
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Stroke style</p>
-            <div className="flex gap-1 p-1 rounded-lg bg-muted">
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Stroke style</p>
+            <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
               {STROKE_STYLES.map((s) => (
                 <button
                   key={s}
@@ -230,8 +248,8 @@ export function Canvas({
                   aria-label={s}
                   className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
                     strokeStyle === s
-                      ? "bg-card ring-1 ring-primary/40"
-                      : "hover:bg-card/60"
+                      ? "bg-muted ring-1 ring-amber-600"
+                      : "hover:bg-muted/60"
                   }`}
                 >
                   <svg width="32" height="8" viewBox="0 0 32 8">
@@ -240,7 +258,7 @@ export function Canvas({
                       y1="4"
                       x2="30"
                       y2="4"
-                      stroke="currentColor"
+                      stroke="#fff"
                       strokeWidth="2"
                       strokeLinecap="round"
                       strokeDasharray={s === "dashed" ? "6 4" : s === "dotted" ? "1 4" : undefined}
@@ -251,7 +269,7 @@ export function Canvas({
             </div>
           </div>
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-2">Opacity</p>
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Opacity</p>
             <input
               type="range"
               min={0}
@@ -297,19 +315,25 @@ export function Canvas({
 function Topbar({
   selectedTool,
   setSelectedTool,
+  shapeSelected,
   onZoomIn,
   onZoomOut,
   onUndo,
   onRedo,
+  onDuplicate,
+  onDelete,
   isLocked,
   setIsLocked,
 }: {
   selectedTool: Tool;
   setSelectedTool: (s: Tool) => void;
+  shapeSelected: boolean
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
+  onDuplicate?: () => void;
+  onDelete?: () => void
   isLocked: boolean;
   setIsLocked: (s: boolean) => void;
 }) {
@@ -385,13 +409,18 @@ function Topbar({
 
       <Divider />
 
-      <ToolButton onClick={onZoomOut} icon={<ZoomOut size={18} />} />
-      <ToolButton onClick={onZoomIn} icon={<ZoomIn size={18} />} />
+      <ToolButton onClick={onZoomOut} disabled = {false} icon={<ZoomOut size={18} />} />
+      <ToolButton onClick={onZoomIn} disabled = {false} icon={<ZoomIn size={18} />} />
 
       <Divider />
 
-      <ToolButton onClick={onUndo} icon={<Undo2 size={18} />} />
-      <ToolButton onClick={onRedo} icon={<Redo2 size={18} />} />
+      <ToolButton onClick={onUndo} disabled = {false} icon={<Undo2 size={18} />} />
+      <ToolButton onClick={onRedo} disabled = {false} icon={<Redo2 size={18} />} />
+
+      <Divider />
+
+      <ToolButton onClick={onDuplicate} disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
+      <ToolButton onClick={onDelete} disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>
     </div>
   );
 }
@@ -400,26 +429,30 @@ function ToolButton({
   active,
   onClick,
   icon,
+  disabled = false
 }: {
   active?: boolean;
   onClick?: () => void;
   icon: React.ReactNode;
+  disabled?: boolean
 }) {
   return (
     <button
+      disabled = {disabled}
       onClick={onClick}
       style={{
         width: 38,
         height: 38,
         borderRadius: "10px",
         border: "none",
-        cursor: "pointer",
         background: active ? "#111" : "transparent",
         color: active ? "#fff" : "#333",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         transition: "all 0.15s ease",
+        opacity: disabled? 0.4 : 1,
+        cursor: disabled?"not-allowed": "pointer"
       }}
       onMouseEnter={(e) => {
         if (!active) e.currentTarget.style.background = "#eee";
@@ -446,6 +479,7 @@ function Divider() {
   );
 }
 
+
 function SwatchRow({
   label,
   colors,
@@ -464,7 +498,7 @@ function SwatchRow({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground">{label}</p>
         <ColorPreview color={value} />
       </div>
       <div className="flex flex-wrap gap-2">
@@ -476,8 +510,8 @@ function SwatchRow({
             title={c}
             className={`w-7 h-7 rounded-md border transition-colors ${
               value === c
-                ? "border-primary ring-1 ring-primary"
-                : "border-border hover:border-primary/60"
+                ? "border-primary ring-2 ring-orange-400"
+                : "border-border hover:border-orange-200"
             }`}
             style={{ backgroundColor: c }}
           />
@@ -539,36 +573,36 @@ function ColorPreview({ color }: { color: string }) {
   );
 }
 
-function SegRow({
-  label,
-  options,
-  value,
-  onChange,
-}: {
-  label: string;
-  options: readonly string[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  return (
-    <div>
-      <p className="text-xs font-medium text-muted-foreground mb-2">{label}</p>
-      <div className="flex gap-1 p-1 rounded-lg bg-muted">
-        {options.map((o) => (
-          <button
-            key={o}
-            onClick={() => onChange(o)}
-            title={o}
-            className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${
-              value === o
-                ? "bg-card text-foreground ring-1 ring-primary/40"
-                : "text-muted-foreground hover:text-foreground hover:bg-card/60"
-            }`}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
+// function SegRow({
+//   label,
+//   options,
+//   value,
+//   onChange,
+// }: {
+//   label: string;
+//   options: readonly string[];
+//   value: string;
+//   onChange: (v: string) => void;
+// }) {
+//   return (
+//     <div>
+//       <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">{label}</p>
+//       <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+//         {options.map((o) => (
+//           <button
+//             key={o}
+//             onClick={() => onChange(o)}
+//             title={o}
+//             className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${
+//               value === o
+//                 ? "bg-gray-600 text-foreground ring-2 ring-primary/60"
+//                 : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+//             }`}
+//           >
+//             {o}
+//           </button>
+//         ))}
+//       </div>
+//     </div>
+//   );
+// }

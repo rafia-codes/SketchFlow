@@ -46,6 +46,8 @@ export class Game {
   private  opacity: number = 1;
 
   private initialShape : Shape | null = null;
+  private selectionListener?: (selected:boolean) => void;
+  private clipboardShape: Shape | null;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -67,6 +69,7 @@ export class Game {
     this.lastPreviewSent = 0;
     this.lastPreviewPoint = { x: 0, y: 0 };
     this.selectedShapeId = null;
+    this.clipboardShape = null;
 
     this.strokeColor = "#ffffff";
     this.fillColor = "transparent";
@@ -87,6 +90,10 @@ export class Game {
     };
   }
 
+  setSelectionListener(callback:(selected:boolean)=>void){
+    this.selectionListener = callback;
+  }
+
   setIsLocked(isLocked: boolean) {
     this.isLocked = isLocked;
   }
@@ -100,6 +107,7 @@ export class Game {
     }
     this.canvas.style.cursor =
       tool == "hand" ? "grab" : tool == "select" ? "default" : "crosshair";
+      this.shapeSelection?.(null);
   }
 
   setScale(newScale: number) {
@@ -149,6 +157,7 @@ export class Game {
     this.selectedShapeId = id;
     this.currentShape = null;
     this.needsRender = true;
+    this.selectionListener?.(id !== null);
   }
 
   private drawSelectionBox(shape: Shape) {
@@ -908,7 +917,92 @@ export class Game {
     this.needsRender = true;
   }
 
-  private deleteSelectedShape() {
+  private offsetShape(shape:Shape, dx: number, dy: number){
+    switch(shape.type){
+      
+      case "rect":
+        shape.x += dx;
+        shape.y += dy;
+        break;
+
+      case "diamond":
+        shape.left += dx;
+        shape.top += dy;
+        shape.centerX += dx;
+        shape.centerY += dy;
+        break;
+
+      case "ellipse":
+        shape.centerX+= dx;
+        shape.centerY += dy;
+        break;
+
+      case "line":
+      case "arrow":
+        shape.sX += dx;
+        shape.sY += dy;
+        shape.eX += dx;
+        shape.eY += dy;
+        break;
+
+      case "pencil":
+        shape.points.forEach((p)=>{
+          p.x += dx;
+          p.y += dy;
+        });
+        break;
+    }
+  }
+
+  copySelectedShape(){
+    console.log('copying');
+    if(!this.selectedShapeId)return;
+
+    const shape = this.findShape(this.selectedShapeId);
+    if(!shape)return;
+
+    this.clipboardShape = structuredClone(shape);
+  }
+
+  pasteSelectedShape(){
+    console.log('pasting');
+    if (!this.clipboardShape) return;
+
+    const newShape = structuredClone(this.clipboardShape);
+    newShape.id = crypto.randomUUID();
+
+    this.offsetShape(newShape,30,30); 
+    this.addShape(newShape);
+
+      this.undoStack.push({
+        type: "add",
+        shape: structuredClone(newShape)
+      });
+      this.redoStack = [];
+
+      console.log(this.socket.readyState);
+      if (this.socket.readyState == WebSocket.OPEN) {
+        this.socket.send(
+          JSON.stringify({
+            type: "shape:add",
+            roomId: this.roomId,
+            shape: newShape
+          }),
+        );
+      }
+      console.log("sent shape 398");
+      this.currentShape = null;
+      this.interaction = "idle";
+      this.selectedShapeId = newShape.id;
+  }
+
+  duplicateShape(){
+    console.log('inside Game.ts');
+    this.copySelectedShape();
+    this.pasteSelectedShape();
+  }
+
+  deleteSelectedShape() {
     if (!this.selectedShapeId) return;
 
     const shapeToBeDeleted = this.findShape(this.selectedShapeId);
@@ -931,6 +1025,7 @@ export class Game {
     }
 
     this.selectedShapeId = null;
+    this.shapeSelection(null);
   }
 
   mouseDownHandler = (e: MouseEvent) => {
