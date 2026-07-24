@@ -151,17 +151,6 @@ app.post("/room", verifyUser, async (req, res) => {//to create a room
   }
 });
 
-app.delete("/chats/:roomId",async(req,res) => {//to delete messages
-  console.log('deleting all shapes');
-  const roomId = req.params.roomId;
-  await prismaClient.chat.deleteMany({
-    where:{
-      roomId
-    }
-  });
-  return res.json({message:"Canvas reset"});
-})
-
 app.get("/room/:slug", async (req, res) => {//returning roomId
   const slug = req.params.slug;
   const room = await prismaClient.room.findFirst({

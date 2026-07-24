@@ -47,6 +47,7 @@ export class Game {
 
   private initialShape : Shape | null = null;
   private selectionListener?: (selected:boolean) => void;
+  private toolListener?: (tool:Tool) => void;
   private clipboardShape: Shape | null;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
@@ -61,6 +62,7 @@ export class Game {
     this.socket = socket;
     this.initHandlers();
     this.initMouseHandlers();
+    this.initKeyboardhandlers();
     this.isLocked = false;
     this.previewshapes = new Map<string, Shape>();
     this.currentShape = null;
@@ -94,12 +96,17 @@ export class Game {
     this.selectionListener = callback;
   }
 
+  setToolListener(callback:(tool:Tool)=>void){
+    this.toolListener = callback;
+  }
+
   setIsLocked(isLocked: boolean) {
     this.isLocked = isLocked;
   }
 
   setSelectedTool(tool: Tool) {
     this.selectedTool = tool;
+    this.toolListener?.(tool);
     if (this.selectedTool !== "select") {
       this.selectedShapeId = null;
       this.interaction = "idle";
@@ -796,18 +803,103 @@ export class Game {
     this.canvas.addEventListener("mousemove", this.mouseMoveHandler);
   }
 
+  initKeyboardhandlers(){
+    window.addEventListener("keydown",this.keyDownHandler);
+  }
+
+  private keyDownHandler = (e:KeyboardEvent) => {
+    console.log(this);
+    console.log(this.undo);
+    if(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)return;
+
+    if(e.ctrlKey && !e.shiftKey && e.key == "z"){
+      e.preventDefault();
+      this.undo();
+      return;
+    }
+
+    console.log(e.ctrlKey+" "+e.shiftKey+" "+e.key);//Z
+    if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() == "z"){
+      e.preventDefault();
+      this.redo();
+      return;
+    }
+
+    if(e.ctrlKey && e.key == "c"){
+      e.preventDefault();
+      this.copySelectedShape();
+      return;
+    }
+
+    if(e.ctrlKey && e.key == "v"){
+      e.preventDefault();
+      this.pasteSelectedShape();
+      return;
+    }
+
+    if(e.ctrlKey && e.key == "d"){
+      e.preventDefault();
+      this.duplicateShape();
+      return;
+    }
+
+    if(e.key == "Delete"){
+      e.preventDefault();
+      this.deleteSelectedShape();
+      return;
+    }
+
+    switch(e.key.toLowerCase()){
+
+      case "r":
+        this.setSelectedTool('rect');
+        break;
+
+      case "o":
+        this.setSelectedTool('ellipse');
+        break;
+
+      case "d":
+        this.setSelectedTool('diamond');
+        break;
+
+      case "l":
+        this.setSelectedTool('line');
+        break;
+
+      case "a":
+        this.setSelectedTool('arrow');
+        break;
+
+      case "p":
+        this.setSelectedTool('pencil');
+        break;
+
+      case "v":
+        this.setSelectedTool('select');
+        break;
+
+      case "h":
+        this.setSelectedTool('hand');
+        break;
+    }
+    //console.log(e);
+  }
+
   destroy() {
     if (this.animationFrameId !== null)
       cancelAnimationFrame(this.animationFrameId);
     this.canvas.removeEventListener("mousedown", this.mouseDownHandler);
     this.canvas.removeEventListener("mouseup", this.mouseUpHandler);
     this.canvas.removeEventListener("mousemove", this.mouseMoveHandler);
+    window.removeEventListener("keydown",this.keyDownHandler);
   }
 
   undo() {
-    if (this.existingShapes.length === 0) return;
+    if (this.undoStack.length == 0) return;
 
     const lastAction = this.undoStack.pop();
+    console.log(lastAction);
     if(!lastAction)return;
 
     if(lastAction.type == "add"){
@@ -1164,11 +1256,13 @@ export class Game {
     if (this.interaction === "moving" || this.interaction === "resizing") {
       const shape = this.findShape(this.selectedShapeId!);
 
-      this.undoStack.push({
-        type:"update",
-        before: this.initialShape!,
-        after: structuredClone(shape)!
-      });
+      if(this.initialShape && shape){
+        this.undoStack.push({
+          type:"update",
+          before: this.initialShape!,
+          after: structuredClone(shape)!
+        });
+      }
       this.redoStack = [];
 
       if (shape && this.socket.readyState == WebSocket.OPEN) {

@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
-import { cursorTo } from "readline";
 
 export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
@@ -69,6 +68,7 @@ export function Canvas({
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
     game?.setSelectionListener(setShapeSelected);
+    game?.setToolListener(setSelectedTool);
     game?.setScale(scale);
     game?.setIsLocked(isLocked);
     game?.setFillColor(fillColor);
@@ -88,7 +88,6 @@ export function Canvas({
     strokeStyle,
     strokeWidth,
     opacity,
-
   ]);
 
   useEffect(() => {
@@ -357,6 +356,7 @@ function Topbar({
     >
       <ToolButton
         active={isLocked}
+        title="Lock Screen"
         onClick={() => (isLocked ? setIsLocked(false) : setIsLocked(true))}
         icon={
           isLocked ? <LockKeyhole size={18} /> : <LockKeyholeOpen size={18} />
@@ -367,42 +367,50 @@ function Topbar({
 
       <ToolButton
         active={selectedTool === "select"}
+        title="Select (V)"
         onClick={() => setSelectedTool("select")}
         icon={<MousePointer size={18} />}
       />
 
       <ToolButton
         active={selectedTool === "hand"}
+        title="Hand (H)"
         onClick={() => setSelectedTool("hand")}
         icon={<Hand size={18} />}
       />
       <ToolButton
         active={selectedTool === "pencil"}
+        title="Pencil (P)"
         onClick={() => setSelectedTool("pencil")}
         icon={<Pencil size={18} />}
       />
       <ToolButton
         active={selectedTool === "arrow"}
+        title="Arrow (A)"
         onClick={() => setSelectedTool("arrow")}
         icon={<ArrowRight size={18} />}
       />
       <ToolButton
         active={selectedTool === "line"}
+        title="Line (L)"
         onClick={() => setSelectedTool("line")}
         icon={<Minus size={18} />}
       />
       <ToolButton
         active={selectedTool === "rect"}
+        title="Rectangle (R)"
         onClick={() => setSelectedTool("rect")}
         icon={<RectangleHorizontalIcon size={18} />}
       />
       <ToolButton
         active={selectedTool === "ellipse"}
+        title="Ellipse (E)"
         onClick={() => setSelectedTool("ellipse")}
         icon={<Circle size={18} />}
       />
       <ToolButton
         active={selectedTool === "diamond"}
+        title="Diamond (D)"
         onClick={() => setSelectedTool("diamond")}
         icon={<Diamond size={18} />}
       />
@@ -414,13 +422,13 @@ function Topbar({
 
       <Divider />
 
-      <ToolButton onClick={onUndo} disabled = {false} icon={<Undo2 size={18} />} />
-      <ToolButton onClick={onRedo} disabled = {false} icon={<Redo2 size={18} />} />
+      <ToolButton onClick={onUndo} title="Undo (Ctrl+Z)" disabled = {false} icon={<Undo2 size={18} />} />
+      <ToolButton onClick={onRedo} title="Redo (Ctrl+Shift+Z)" disabled = {false} icon={<Redo2 size={18} />} />
 
       <Divider />
 
-      <ToolButton onClick={onDuplicate} disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
-      <ToolButton onClick={onDelete} disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>
+      <ToolButton onClick={onDuplicate} title="Duplicate (Ctrl+D)" disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
+      <ToolButton onClick={onDelete} title="Delete (Del)" disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>
     </div>
   );
 }
@@ -429,16 +437,19 @@ function ToolButton({
   active,
   onClick,
   icon,
-  disabled = false
+  disabled = false,
+  title
 }: {
   active?: boolean;
   onClick?: () => void;
   icon: React.ReactNode;
-  disabled?: boolean
+  disabled?: boolean;
+  title?: string
 }) {
   return (
     <button
       disabled = {disabled}
+      title={title}
       onClick={onClick}
       style={{
         width: 38,
