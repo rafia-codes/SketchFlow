@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
+import { Toast } from "@/draw/types";
 
 export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
@@ -55,6 +56,8 @@ export function Canvas({
   const [strokeWidth, setStrokeWidth] = useState(2);
 
   const [opacity, setOpacity] = useState(1);
+  const [onlineUsers,setOnlineUsers] = useState(1);
+  const [toast,setToast] = useState<Toast | null>(null);
 
   const primaryTools = [
     "rect",
@@ -69,6 +72,7 @@ export function Canvas({
     game?.setSelectedTool(selectedTool);
     game?.setSelectionListener(setShapeSelected);
     game?.setToolListener(setSelectedTool);
+    game?.setOnlineUsersListener(setOnlineUsers);
     game?.setScale(scale);
     game?.setIsLocked(isLocked);
     game?.setFillColor(fillColor);
@@ -108,6 +112,25 @@ export function Canvas({
     window.addEventListener("resize", handleresize);
     return () => window.removeEventListener("resize", handleresize);
   }, []);
+
+  useEffect(() => {
+      if (!game) return;
+
+      let timer: any;
+
+      game.setToastListener((toastData) => {
+        setToast(toastData);
+
+        clearTimeout(timer);
+
+        timer = setTimeout(() => {
+          setToast(null);
+        }, 3000);
+      });
+
+      return () => clearTimeout(timer);
+  }, [game]);
+
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
@@ -159,7 +182,6 @@ export function Canvas({
   };
 
   const onDuplicate = () => {
-    console.log('duplicating');
     game?.duplicateShape();
   }
 
@@ -283,6 +305,12 @@ export function Canvas({
        }
 
       <div className="absolute top-6 right-4 flex gap-3">
+        <div className="flex items-center gap-2 text-gray-300">
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-sm font-medium">
+              {onlineUsers} Online
+            </span>
+          </div>
         <button
           onClick={onShare}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium 
@@ -307,6 +335,20 @@ export function Canvas({
           Leave
         </button>
       </div>
+
+              
+        {toast && (
+          <div className="toast">
+            <div
+              className="toast-dot"
+              style={{
+                backgroundColor: toast.color
+              }}
+            />
+
+            {toast.message}
+          </div>
+        )}
     </div>
   );
 }

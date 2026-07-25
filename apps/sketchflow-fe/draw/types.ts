@@ -85,6 +85,11 @@ export type Shape = BaseShape & ShapeStyle & {
 export type Cursor = {
   x: number;
   y: number;
-  color: string;
-  name: string;
+  color?: Color;
+  name?: string;
+}
+
+export type Toast = {
+  message : string;
+  color : Color
 }

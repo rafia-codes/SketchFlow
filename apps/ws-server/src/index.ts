@@ -27,7 +27,7 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string}) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
@@ -38,8 +38,22 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
       if(ws !== userws && userws.readyState == WebSocket.OPEN){
         userws.send(JSON.stringify({
           type: type,
-          userId: getClient(ws)?.userId,
+          userId: client?.userId,
           ...data,
+        }))
+      }
+    })
+    return;
+  }
+
+  if(type == "user:joined" || type == "user:left"){
+    rooms.get(roomId)?.forEach((user,userws)=>{
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          userId: client?.userId,
+          name: client?.name,
+          color: client?.color
         }))
       }
     })
@@ -120,8 +134,6 @@ wss.on("connection", (ws, request) => {
           break;
 
         case "join_room":
-          console.log("join_room");
-          //const label = `findMany ${crypto.randomUUID}`;
           try {
             if (parsedData.roomId.startsWith("guest")) {
               client.userId = "guest-" + crypto.randomUUID();
@@ -137,7 +149,6 @@ wss.on("connection", (ws, request) => {
             rooms.get(parsedData.roomId)?.set(ws, client);
             client.rooms.add(parsedData.roomId);
 
-            //console.time(label);
             const chats = await prismaClient.chat.findMany({
               where: {
                 roomId: Number(parsedData.roomId),
@@ -154,11 +165,24 @@ wss.on("connection", (ws, request) => {
                 shapes: chats.map((chat: any) => JSON.parse(chat.message)),
               }),
             );
+
+            broadcastToRoom(ws,"user:joined",parsedData.roomId,{name: client.name});//those who are already there
+
+            rooms.get(parsedData.roomId)?.forEach((user,userws)=>{//for those who have joined later n getting info of the ones who have already joined
+              if(ws !== userws && userws.readyState == WebSocket.OPEN){
+                ws.send(JSON.stringify({
+                  type:"user:joined",
+                  userId: user.userId,
+                  name: user.name,
+                  color: user.color
+                }));
+              }
+            });
+
             console.log("sent room snapshot");
           } catch (error) {
             console.log(error);
           } finally {
-            //console.timeEnd(label);
           }
           break;
 
@@ -534,12 +558,7 @@ wss.on("connection", (ws, request) => {
           const x = parsedData.x;
           const y = parsedData.y;
 
-          broadcastToRoom(ws,"cursor:update",roomId,{
-            x: x,
-            y: y,
-            name: client.name,
-            color: client.color
-          })
+          broadcastToRoom(ws,"cursor:update",roomId,{ x: x, y: y});
 
         break;
 
@@ -563,6 +582,10 @@ wss.on("connection", (ws, request) => {
               userws.send(JSON.stringify({
                 type: "cursor:remove",
                 userId: getClient(ws)?.userId,
+              }));
+              userws.send(JSON.stringify({
+                type: "user:left",
+                name : getClient(ws)?.name
               }))
             }
           })

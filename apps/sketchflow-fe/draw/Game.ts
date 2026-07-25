@@ -1,5 +1,5 @@
 import { Tool } from "../components/Canvas";
-import { Shape, ShapeStyle, HistoryAction, Cursor } from "./types";
+import { Shape, ShapeStyle, HistoryAction, Cursor, Toast } from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -52,6 +52,8 @@ export class Game {
   private selectionListener?: (selected:boolean) => void;
   private toolListener?: (tool:Tool) => void;
   private clipboardShape: Shape | null;
+  private onlineUsers?: (usersOnline:number) => void;
+  private toastListener?: (toast: Toast)=>void;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -104,6 +106,14 @@ export class Game {
     this.toolListener = callback;
   }
 
+  setOnlineUsersListener(callback:(online: number)=> void){
+    this.onlineUsers = callback;
+  }
+
+  setToastListener(callback:(toast: Toast)=>void){
+    this.toastListener = callback;
+  }
+
   setIsLocked(isLocked: boolean) {
     this.isLocked = isLocked;
   }
@@ -124,7 +134,6 @@ export class Game {
   setScale(newScale: number) {
     this.scale = newScale;
     this.needsRender = true;
-    console.log("now =", this.scale);
   }
 
   setStrokeColor(newStrokeColor : string){
@@ -647,20 +656,16 @@ export class Game {
     this.ctx.save();
 
     this.ctx.translate(cursor.x,cursor.y);
+    this.ctx.scale(this.scale,this.scale);
 
     this.ctx.beginPath();
     this.ctx.moveTo(0, 0);      // tip
-    this.ctx.lineTo(0, 18);
-    this.ctx.lineTo(5, 14);
-    this.ctx.lineTo(8, 24);
-    this.ctx.lineTo(11, 23);
-    this.ctx.lineTo(8, 13);
-    this.ctx.lineTo(15, 13);
+    this.ctx.lineTo(2, 18);
+    this.ctx.lineTo(6, 12);
+    this.ctx.lineTo(14, 13);
     this.ctx.closePath();
 
-    this.ctx.closePath();
-
-    this.ctx.fillStyle = cursor.color;
+    this.ctx.fillStyle = cursor.color?? "white";
     this.ctx.fill();
 
     this.ctx.strokeStyle = "black";
@@ -668,8 +673,8 @@ export class Game {
     this.ctx.stroke();
 
     this.ctx.font = "12px sans-serif";
-    this.ctx.fillStyle = cursor.color;
-    this.ctx.fillText(cursor.name, 24, 24);
+    this.ctx.fillStyle = cursor.color?? "white";
+    this.ctx.fillText(cursor.name?? "Guest", 24, 24);
 
     this.ctx.restore();
   }
@@ -700,7 +705,6 @@ export class Game {
     if (!shape) return;
     this.ctx.save();
     this.applyStyle(shape);
-    console.log(shape);
     if (shape.type === "rect") {
       if(shape.fillColor !== "transparent")
         this.ctx.fillRect(shape.x,shape.y,shape.width,shape.height);
@@ -813,6 +817,38 @@ export class Game {
           this.existingShapes = received.shapes;
           this.needsRender = true;
           break;
+        case "user:joined":
+          this.cursors.set(received.userId,{
+            x: 0,
+            y: 0,
+            name: received.name,
+            color: received.color
+          })
+          this.onlineUsers?.(this.cursors.size + 1);
+          console.log(835,this.cursors);
+          this.toastListener?.({
+            message: `${received.name} joined`,
+            color: received.color
+          });
+          this.needsRender = true;
+          break;
+        case "user:left":
+          this.cursors.delete(received.userId);
+          this.onlineUsers?.(this.cursors.size + 1);
+          this.toastListener?.({
+            message: `${received.name} left`,
+            color: received.color
+          });
+          this.needsRender = true;
+          break;
+        case "cursor:update":
+          const existingCursor = this.cursors.get(received.userId);
+          if(existingCursor){
+            existingCursor.x = received.x,
+            existingCursor.y = received.y
+          };
+          this.needsRender = true;
+          break;
         case "shape:preview":
           this.previewshapes.set(received.userId, received.shape);
           this.needsRender = true;
@@ -825,22 +861,7 @@ export class Game {
           this.updateShape(received.shape.id, received.shape);
           break;
         case "shape:delete":
-          console.log('delete shape',received.shape.id);
           this.deleteShape(received.shape.id);
-          break;
-        case "cursor:update":
-          console.log(this.cursors);
-          this.cursors.set(received.userId,{
-            x:received.x,
-            y:received.y,
-            color:received.color,
-            name:received.name
-          });
-          this.needsRender = true;
-          break;
-        case "cursor:remove":
-          this.cursors.delete(received.userId);
-          this.needsRender = true;
           break;
       }
     };
@@ -857,8 +878,6 @@ export class Game {
   }
 
   private keyDownHandler = (e:KeyboardEvent) => {
-    console.log(this);
-    console.log(this.undo);
     if(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)return;
 
     if(e.ctrlKey && !e.shiftKey && e.key == "z"){
@@ -867,7 +886,7 @@ export class Game {
       return;
     }
 
-    console.log(e.ctrlKey+" "+e.shiftKey+" "+e.key);//Z
+    //console.log(e.ctrlKey+" "+e.shiftKey+" "+e.key);//Z
     if(e.ctrlKey && e.shiftKey && e.key.toLowerCase() == "z"){
       e.preventDefault();
       this.redo();
@@ -948,7 +967,7 @@ export class Game {
     if (this.undoStack.length == 0) return;
 
     const lastAction = this.undoStack.pop();
-    console.log(lastAction);
+    //console.log(lastAction);
     if(!lastAction)return;
 
     if(lastAction.type == "add"){
@@ -964,7 +983,7 @@ export class Game {
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
-      console.log(`sending undo`, lastAction);
+      //console.log(`sending undo`, lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:undo",
@@ -996,7 +1015,7 @@ export class Game {
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
-      console.log("sending redo", lastAction);
+      //console.log("sending redo", lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:redo",
@@ -1096,7 +1115,6 @@ export class Game {
   }
 
   copySelectedShape(){
-    console.log('copying');
     if(!this.selectedShapeId)return;
 
     const shape = this.findShape(this.selectedShapeId);
@@ -1106,7 +1124,6 @@ export class Game {
   }
 
   pasteSelectedShape(){
-    console.log('pasting');
     if (!this.clipboardShape) return;
 
     const newShape = structuredClone(this.clipboardShape);
@@ -1121,7 +1138,7 @@ export class Game {
       });
       this.redoStack = [];
 
-      console.log(this.socket.readyState);
+      //console.log(this.socket.readyState);
       if (this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
@@ -1131,14 +1148,14 @@ export class Game {
           }),
         );
       }
-      console.log("sent shape 398");
+      //console.log("sent shape 398");
       this.currentShape = null;
       this.interaction = "idle";
       this.selectedShapeId = newShape.id;
   }
 
   duplicateShape(){
-    console.log('inside Game.ts');
+    //console.log('inside Game.ts');
     this.copySelectedShape();
     this.pasteSelectedShape();
   }
@@ -1349,7 +1366,7 @@ export class Game {
       });
       this.redoStack = [];
 
-      console.log(this.socket.readyState);
+      //console.log(this.socket.readyState);
       if (this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
@@ -1359,7 +1376,7 @@ export class Game {
           }),
         );
       }
-      console.log("sent shape 398");
+      //console.log("sent shape 398");
       this.currentShape = null;
       this.interaction = "idle";
       this.selectedShapeId = null;

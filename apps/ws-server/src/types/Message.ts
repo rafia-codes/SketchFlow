@@ -44,6 +44,4 @@ export type Message = {
 export type CursorPreview = {
     x: string,
     y: string,
-    name: string,
-    color: string
 };
