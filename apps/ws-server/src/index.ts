@@ -3,7 +3,7 @@ import jwt, { Jwt, JwtPayload } from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 import { Client } from "./types/Client.js";
-import { Message } from "./types/Message.js";
+import { CursorPreview, Message } from "./types/Message.js";
 import { Shape } from "./types/Shape.js";
 
 const wss = new WebSocketServer({ port: 8080 });
@@ -27,22 +27,31 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(
-  ws: WebSocket,
-  type: string,
-  roomId: string,
-  shape: Shape,
-) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
+
+  if(type == "cursor:update"){
+    console.log('sending cursor updates');
+    rooms.get(roomId)?.forEach((user,userws)=>{
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          userId: getClient(ws)?.userId,
+          ...data,
+        }))
+      }
+    })
+    return;
+  }
 
   rooms.get(roomId)?.forEach((user, userws) => {
     if (ws !== userws && userws.readyState == WebSocket.OPEN) {
       userws.send(
         JSON.stringify({
           type: type,
-          shape: shape,
+          shape: data,
           userId: client?.userId,
         }),
       );
@@ -54,6 +63,14 @@ wss.on("listening", () => {
   console.log("WebSocket server live");
 });
 
+function randomColor(){
+  const r = Math.floor(Math.random()*156) + 100;
+  const g = Math.floor(Math.random()*156) + 100;
+  const b = Math.floor(Math.random()*156) + 100;
+
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
 wss.on("connection", (ws, request) => {
   console.log("173 client connected");
   let client: Client = {
@@ -61,21 +78,21 @@ wss.on("connection", (ws, request) => {
     userId: null,
     authenticated: false,
     rooms: new Set(),
+    name: "",
+    color: ""
   };
   clients.set(ws, client);
 
   ws.on("message", async (data) => {
     try {
       let parsedData: Message;
-      console.log(184, typeof data);
       parsedData = JSON.parse(data.toString());
-      console.log(187, parsedData);
 
       if (!parsedData.type) return;
 
       switch (parsedData.type) {
         case "auth":
-          console.log("191 auth");
+          //console.log("191 auth");
           try {
             const userId = checkClient(parsedData.token);
             if (!userId) {
@@ -84,6 +101,18 @@ wss.on("connection", (ws, request) => {
             }
             client.authenticated = true;
             client.userId = userId;
+
+            client.color = randomColor();
+            
+            const user = await prismaClient.user.findUnique({
+              where:{
+                id: userId
+              }
+            });
+
+            if(!user)return;
+
+            client.name = user.name;
           } catch (error) {
             console.log(error);
             ws.close();
@@ -97,6 +126,8 @@ wss.on("connection", (ws, request) => {
             if (parsedData.roomId.startsWith("guest")) {
               client.userId = "guest-" + crypto.randomUUID();
               client.authenticated = true;
+              client.color = randomColor();
+              client.name = "Guest";
             }
             if (!client.authenticated) return;
 
@@ -139,7 +170,6 @@ wss.on("connection", (ws, request) => {
               rooms.get(parsedData.roomId)?.has(ws)
             )
               rooms.get(parsedData.roomId)?.delete(ws);
-
             ws.close();
           } catch (error) {
             console.log(error);
@@ -492,6 +522,27 @@ wss.on("connection", (ws, request) => {
             console.log(error);
           }
           break;
+        
+        case "cursor:update":
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+          const x = parsedData.x;
+          const y = parsedData.y;
+
+          broadcastToRoom(ws,"cursor:update",roomId,{
+            x: x,
+            y: y,
+            name: client.name,
+            color: client.color
+          })
+
+        break;
+
       }
     } catch (error) {
       console.log(480);
@@ -502,10 +553,20 @@ wss.on("connection", (ws, request) => {
   ws.on("close", () => {
     const existingrooms = getClient(ws)?.rooms;
     if (existingrooms)
-      for (let room of existingrooms) {
-        rooms.get(room)?.delete(ws);
+      for (let roomId of existingrooms) {
+        rooms.get(roomId)?.delete(ws);
 
-        if (rooms.get(room)?.size == 0) rooms.delete(room);
+        if (rooms.get(roomId)?.size == 0) rooms.delete(roomId);
+        else {
+          rooms.get(roomId)?.forEach((user,userws)=>{
+            if(userws.readyState == WebSocket.OPEN){
+              userws.send(JSON.stringify({
+                type: "cursor:remove",
+                userId: getClient(ws)?.userId,
+              }))
+            }
+          })
+        }
       }
     clients.delete(ws);
   });

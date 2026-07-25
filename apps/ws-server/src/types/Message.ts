@@ -32,4 +32,18 @@ export type Message = {
     type : "history:undo" | "history:redo",
     roomId : string,
     action : HistoryAction
+} | {
+    type : "cursor:update",
+    roomId : string,
+    x : string,
+    y : string
+} | {
+    type : "cursor:remove",
 }
+
+export type CursorPreview = {
+    x: string,
+    y: string,
+    name: string,
+    color: string
+};

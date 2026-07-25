@@ -1,5 +1,5 @@
 import { Tool } from "../components/Canvas";
-import { Shape, ShapeStyle, HistoryAction } from "./types";
+import { Shape, ShapeStyle, HistoryAction, Cursor } from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -20,12 +20,15 @@ export class Game {
   private scale = 1;
   private isLocked = false;
   private previewshapes: Map<string, Shape>;
+  private cursors: Map<string,Cursor>;
   private currentShape: Shape | null;
   private needsRender: boolean;
   private animationFrameId: number | null;
   private lastPreviewSent: number;
+  private lastCursorSent: number = 0;
   private lastPreviewPoint: { x: number; y: number };
   private readonly PREVIEW_INTERVAL = 33;
+  private readonly CURSOR_INTERVAL = 16;
   private selectedShapeId: string | null;
   private interaction: "idle" | "drawing" | "moving" | "resizing" = "idle";
   private dragStart = {
@@ -65,6 +68,7 @@ export class Game {
     this.initKeyboardhandlers();
     this.isLocked = false;
     this.previewshapes = new Map<string, Shape>();
+    this.cursors = new Map<string,Cursor>();
     this.currentShape = null;
     this.needsRender = true;
     this.animationFrameId = 0;
@@ -633,6 +637,41 @@ export class Game {
     for (const pshape of this.previewshapes.values()) {
       this.drawShape(pshape);
     }
+
+    for(const cursor of this.cursors.values()){
+      this.drawCursor(cursor);
+    }
+  }
+
+  private drawCursor(cursor:Cursor){
+    this.ctx.save();
+
+    this.ctx.translate(cursor.x,cursor.y);
+
+    this.ctx.beginPath();
+    this.ctx.moveTo(0, 0);      // tip
+    this.ctx.lineTo(0, 18);
+    this.ctx.lineTo(5, 14);
+    this.ctx.lineTo(8, 24);
+    this.ctx.lineTo(11, 23);
+    this.ctx.lineTo(8, 13);
+    this.ctx.lineTo(15, 13);
+    this.ctx.closePath();
+
+    this.ctx.closePath();
+
+    this.ctx.fillStyle = cursor.color;
+    this.ctx.fill();
+
+    this.ctx.strokeStyle = "black";
+    this.ctx.lineWidth = 1;
+    this.ctx.stroke();
+
+    this.ctx.font = "12px sans-serif";
+    this.ctx.fillStyle = cursor.color;
+    this.ctx.fillText(cursor.name, 24, 24);
+
+    this.ctx.restore();
   }
 
   private applyStyle(shape: Shape){
@@ -771,11 +810,7 @@ export class Game {
       console.log(e.data);
       switch (received.type) {
         case "room_snapshot":
-          console.log("got room snapshot");
-          console.log(this.existingShapes);
-          console.log(243, received.shapes);
           this.existingShapes = received.shapes;
-          console.log(this.existingShapes);
           this.needsRender = true;
           break;
         case "shape:preview":
@@ -792,6 +827,20 @@ export class Game {
         case "shape:delete":
           console.log('delete shape',received.shape.id);
           this.deleteShape(received.shape.id);
+          break;
+        case "cursor:update":
+          console.log(this.cursors);
+          this.cursors.set(received.userId,{
+            x:received.x,
+            y:received.y,
+            color:received.color,
+            name:received.name
+          });
+          this.needsRender = true;
+          break;
+        case "cursor:remove":
+          this.cursors.delete(received.userId);
+          this.needsRender = true;
           break;
       }
     };
@@ -1333,6 +1382,21 @@ export class Game {
     }
 
     const { x: endX, y: endY } = this.getMousePos(e);
+
+    const now = performance.now();
+
+    if(now - this.lastCursorSent >= this.CURSOR_INTERVAL){
+      this.lastCursorSent = now;
+      console.log('cursor preview sent:',endX, endY);
+      if(this.socket.readyState == WebSocket.OPEN){
+        this.socket.send(JSON.stringify({
+          type:"cursor:update",
+          roomId: this.roomId,
+          x: endX,
+          y: endY,
+        }));
+      }
+    }
 
     if (this.selectedTool === "select" && this.interaction === "idle") {
       const shape = this.selectedShapeId

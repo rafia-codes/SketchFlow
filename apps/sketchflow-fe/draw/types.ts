@@ -81,3 +81,10 @@ export type BaseShape =
 export type Shape = BaseShape & ShapeStyle & {
   id: string;
 };
+
+export type Cursor = {
+  x: number;
+  y: number;
+  color: string;
+  name: string;
+}

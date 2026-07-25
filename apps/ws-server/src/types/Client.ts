@@ -5,4 +5,7 @@ export interface Client {
     userId : string | null,
     authenticated: boolean,
     rooms : Set<string>
+
+    name: string,
+    color: string 
 }
