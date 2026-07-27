@@ -54,6 +54,7 @@ export class Game {
   private clipboardShape: Shape | null;
   private onlineUsers?: (usersOnline:number) => void;
   private toastListener?: (toast: Toast)=>void;
+  private showGrid: boolean = true;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -86,7 +87,6 @@ export class Game {
 
     this.strokeStyle = "solid";
     this.fillStyle = "solid";
-
     this.render();
   }
 
@@ -446,6 +446,11 @@ export class Game {
     this.ctx.stroke();
   }
 
+  toggleGrid(){
+    this.showGrid = !this.showGrid;
+    this.needsRender = true;
+  }
+
   private isPointOnRect(x: number,y: number,shape: Extract<Shape, { type: "rect" }>): boolean {
     const padding = 5 / this.scale;
 
@@ -632,6 +637,7 @@ export class Game {
       this.offsetY * this.scale,
     );
 
+    if(this.showGrid)
     this.drawGrid();
 
     this.existingShapes?.forEach((shape) => this.drawShape(shape));

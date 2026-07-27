@@ -15,7 +15,9 @@ import {
   ArrowRight,
   MousePointer,
   CopyPlus,
-  Trash2
+  Trash2,
+  Grid2X2,
+  Grid3X3
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
@@ -150,6 +152,10 @@ export function Canvas({
     game?.redo();
   };
 
+  const onToggle = () => {
+    game?.toggleGrid();
+  };
+
   const onShare = async () => {
     const url = window.location.href;
     const link = url.split("/canvas/").join("/");
@@ -214,6 +220,7 @@ export function Canvas({
         setIsLocked={setIsLocked}
         onDelete={onDelete}
         onDuplicate={onDuplicate}
+        onToggle={onToggle}
       />
       
        {primaryTools.includes(selectedTool) && 
@@ -363,6 +370,7 @@ function Topbar({
   onRedo,
   onDuplicate,
   onDelete,
+  onToggle,
   isLocked,
   setIsLocked,
 }: {
@@ -374,7 +382,8 @@ function Topbar({
   onUndo?: () => void;
   onRedo?: () => void;
   onDuplicate?: () => void;
-  onDelete?: () => void
+  onDelete?: () => void;
+  onToggle?: () => void;
   isLocked: boolean;
   setIsLocked: (s: boolean) => void;
 }) {
@@ -469,6 +478,7 @@ function Topbar({
 
       <Divider />
 
+      <ToolButton onClick={onToggle} title="Toggle Grid" icon={<Grid3X3 size={18} />} />
       <ToolButton onClick={onDuplicate} title="Duplicate (Ctrl+D)" disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
       <ToolButton onClick={onDelete} title="Delete (Del)" disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>
     </div>
