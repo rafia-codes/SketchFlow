@@ -16,8 +16,8 @@ import {
   MousePointer,
   CopyPlus,
   Trash2,
-  Grid2X2,
-  Grid3X3
+  Grid3X3,
+  Grid2X2Check
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
@@ -60,6 +60,7 @@ export function Canvas({
   const [opacity, setOpacity] = useState(1);
   const [onlineUsers,setOnlineUsers] = useState(1);
   const [toast,setToast] = useState<Toast | null>(null);
+  const [snapToGrid,setSnapToGrid] = useState<boolean>(false);
 
   const primaryTools = [
     "rect",
@@ -75,6 +76,7 @@ export function Canvas({
     game?.setSelectionListener(setShapeSelected);
     game?.setToolListener(setSelectedTool);
     game?.setOnlineUsersListener(setOnlineUsers);
+    game?.setSnapToGrid(snapToGrid);
     game?.setScale(scale);
     game?.setIsLocked(isLocked);
     game?.setFillColor(fillColor);
@@ -94,6 +96,7 @@ export function Canvas({
     strokeStyle,
     strokeWidth,
     opacity,
+    snapToGrid
   ]);
 
   useEffect(() => {
@@ -156,6 +159,10 @@ export function Canvas({
     game?.toggleGrid();
   };
 
+  const onSnapToggle = () => {
+    setSnapToGrid(prev => !prev);
+  }
+
   const onShare = async () => {
     const url = window.location.href;
     const link = url.split("/canvas/").join("/");
@@ -217,10 +224,12 @@ export function Canvas({
         onRedo={onRedo}
         onUndo={onUndo}
         isLocked={isLocked}
+        isSnapToGrid={snapToGrid}
         setIsLocked={setIsLocked}
         onDelete={onDelete}
         onDuplicate={onDuplicate}
         onToggle={onToggle}
+        onSnapToggle={onSnapToggle}
       />
       
        {primaryTools.includes(selectedTool) && 
@@ -371,6 +380,8 @@ function Topbar({
   onDuplicate,
   onDelete,
   onToggle,
+  onSnapToggle,
+  isSnapToGrid,
   isLocked,
   setIsLocked,
 }: {
@@ -384,6 +395,8 @@ function Topbar({
   onDuplicate?: () => void;
   onDelete?: () => void;
   onToggle?: () => void;
+  onSnapToggle?: () => void;
+  isSnapToGrid: boolean; 
   isLocked: boolean;
   setIsLocked: (s: boolean) => void;
 }) {
@@ -478,6 +491,7 @@ function Topbar({
 
       <Divider />
 
+      <ToolButton onClick={onSnapToggle} title="Snap to Grid" active={isSnapToGrid} icon={<Grid2X2Check size={18} />} />
       <ToolButton onClick={onToggle} title="Toggle Grid" icon={<Grid3X3 size={18} />} />
       <ToolButton onClick={onDuplicate} title="Duplicate (Ctrl+D)" disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
       <ToolButton onClick={onDelete} title="Delete (Del)" disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>

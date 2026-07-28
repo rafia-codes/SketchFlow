@@ -1,3 +1,4 @@
+import { createPrerenderSearchParamsForClientPage } from "next/dist/server/request/search-params";
 import { Tool } from "../components/Canvas";
 import { Shape, ShapeStyle, HistoryAction, Cursor, Toast } from "./types";
 
@@ -18,6 +19,8 @@ export class Game {
   private offsetX = 0;
   private offsetY = 0;
   private scale = 1;
+  private readonly GRID_SIZE = 20;
+  private snapToGrid: boolean;
   private isLocked = false;
   private previewshapes: Map<string, Shape>;
   private cursors: Map<string,Cursor>;
@@ -79,7 +82,7 @@ export class Game {
     this.lastPreviewPoint = { x: 0, y: 0 };
     this.selectedShapeId = null;
     this.clipboardShape = null;
-
+    this.snapToGrid = false;
     this.strokeColor = "#ffffff";
     this.fillColor = "transparent";
 
@@ -112,6 +115,10 @@ export class Game {
 
   setToastListener(callback:(toast: Toast)=>void){
     this.toastListener = callback;
+  }
+
+  setSnapToGrid(val : boolean){
+    this.snapToGrid = val;
   }
 
   setIsLocked(isLocked: boolean) {
@@ -418,27 +425,30 @@ export class Game {
     this.ctx.restore();
   }
 
-  private drawGrid() {
-    const gridSize = 20;
+  snap(val: number){
+    if(!this.snapToGrid)return val;
+    return Math.round(val / this.GRID_SIZE) * this.GRID_SIZE;
+  }
 
+  private drawGrid() {
     const left = -this.offsetX;
     const top = -this.offsetY;
     const right = left + this.canvas.width / this.scale;
     const bottom = top + this.canvas.height / this.scale;
 
-    const startX = Math.floor(left / gridSize) * gridSize;
-    const startY = Math.floor(top / gridSize) * gridSize;
+    const startX = Math.floor(left / this.GRID_SIZE) * this.GRID_SIZE;
+    const startY = Math.floor(top / this.GRID_SIZE) * this.GRID_SIZE;
 
     this.ctx.beginPath();
     this.ctx.strokeStyle = "#1f1f1f";
     this.ctx.lineWidth = 1 / this.scale;
 
-    for (let x = startX; x <= right; x += gridSize) {
+    for (let x = startX; x <= right; x += this.GRID_SIZE) {
       this.ctx.moveTo(x, top);
       this.ctx.lineTo(x, bottom);
     }
 
-    for (let y = startY; y <= bottom; y += gridSize) {
+    for (let y = startY; y <= bottom; y += this.GRID_SIZE) {
       this.ctx.moveTo(left, y);
       this.ctx.lineTo(right, y);
     }
@@ -1202,7 +1212,12 @@ export class Game {
       return;
     }
 
-    const { x, y } = this.getMousePos(e);
+    let { x, y } = this.getMousePos(e);
+
+    if(this.selectedTool !== "select" && this.selectedTool !== "pencil"){
+      x = this.snap(x);
+      y = this.snap(y);
+    }
 
     if (this.selectedTool === "select") {
       let shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
@@ -1404,7 +1419,7 @@ export class Game {
       return;
     }
 
-    const { x: endX, y: endY } = this.getMousePos(e);
+    let { x: endX, y: endY } = this.getMousePos(e);
 
     const now = performance.now();
 
@@ -1419,6 +1434,11 @@ export class Game {
           y: endY,
         }));
       }
+    }
+
+    if(this.selectedTool !== "pencil"){
+    endX = this.snap(endX);
+    endY = this.snap(endY);
     }
 
     if (this.selectedTool === "select" && this.interaction === "idle") {
