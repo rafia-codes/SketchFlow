@@ -15,6 +15,8 @@ export type ShapeStyle = {
   fillStyle: "solid" | "cross-hatch" | "hachure"; 
 
   opacity: number;//done
+
+  rotation?: number;
 }
 
 export type HistoryAction =

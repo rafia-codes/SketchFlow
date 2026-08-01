@@ -13,7 +13,7 @@ interface BaseShape {
 
       opacity: number;
 
-     // rotation: number;
+      rotation?: number;
 }
 
 type Points = {

@@ -32,7 +32,7 @@ export class Game {
   private readonly PREVIEW_INTERVAL = 33;
   private readonly CURSOR_INTERVAL = 16;
   private selectedShapeId: string | null;
-  private interaction:"idle"| "drawing"| "moving"| "resizing"| "marquee"| "idle"| "groupMove" = "idle";
+  private interaction:"idle"| "drawing"| "moving"| "resizing"| "marquee"| "idle"| "groupMove" | "rotating" = "idle";
   private dragStart = {x: 0,y: 0};
   private resizeHandle: "tl" | "tr" | "bl" | "br" | null = null;
   private SELECTION_PADDING = 5;
@@ -56,7 +56,8 @@ export class Game {
   private onlineUsers?: (usersOnline: number) => void;
   private toastListener?: (toast: Toast) => void;
   private showGrid: boolean = true;
-  private shiftPressed: boolean = false;
+  private rotationStartAngle = 0;
+  private initialRotation = 0;
 
   private selectionRect: {
     x: number;
@@ -101,9 +102,7 @@ export class Game {
     this.snapToGrid = false;
     this.strokeColor = "#ffffff";
     this.fillColor = "transparent";
-
     this.strokeWidth = 2 / this.scale;
-
     this.strokeStyle = "solid";
     this.fillStyle = "solid";
     this.render();
@@ -211,206 +210,55 @@ export class Game {
     this.needsRender = true;
   }
 
-  private drawSelectionBox(shape: Shape) {
-    this.ctx.save();
+  private getLeftTopWidthHeight(shape: Shape):{left:number,top:number,width:number,height:number}{
+    switch(shape.type){
+      case "rect": 
+        return {left: shape.x, top: shape.y, width: shape.width, height: shape.height};
 
-    this.ctx.strokeStyle = "#3b82f6";
-    this.ctx.lineWidth = this.strokeWidth / this.scale;
+      case "ellipse":
+        return {left: shape.centerX - shape.radX, top: shape.centerY - shape.radY, width: shape.radX * 2, height: shape.radY * 2};
 
-    if (shape.type == "rect") {
-      this.ctx.strokeRect(
-        shape.x - this.SELECTION_PADDING,
-        shape.y - this.SELECTION_PADDING,
-        shape.width + 2 * this.SELECTION_PADDING,
-        shape.height + 2 * this.SELECTION_PADDING,
-      );
+      case "diamond":
+        return {left: shape.left, top: shape.top, width: shape.width, height: shape.height};
 
-      const handles = [
-        {
-          x: shape.x - this.SELECTION_PADDING,
-          y: shape.y - this.SELECTION_PADDING,
-          dir: "tl",
-        },
-        {
-          x: shape.x + shape.width + this.SELECTION_PADDING,
-          y: shape.y - this.SELECTION_PADDING,
-          dir: "tr",
-        },
-        {
-          x: shape.x - this.SELECTION_PADDING,
-          y: shape.y + shape.height + this.SELECTION_PADDING,
-          dir: "bl",
-        },
-        {
-          x: shape.x + shape.width + this.SELECTION_PADDING,
-          y: shape.y + shape.height + this.SELECTION_PADDING,
-          dir: "br",
-        },
-      ];
+      case "line":
+      case "arrow":
+        return {left: Math.min(shape.sX, shape.eX), top: Math.min(shape.sY, shape.eY), width: Math.abs(shape.eX - shape.sX), height: Math.abs(shape.eY - shape.sY)};
 
-      this.drawHandles(handles);
-    } else if (shape.type == "ellipse") {
-      this.ctx.beginPath();
+      case "pencil":
+        const xs = shape.points.map((p) => p.x);
+        const ys = shape.points.map((p) => p.y);
 
-      const left = shape.centerX - shape.radX;
-      const top = shape.centerY - shape.radY;
-      const width = shape.radX * 2;
-      const height = shape.radY * 2;
+        const left = Math.min(...xs);
+        const top = Math.min(...ys);
 
-      this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + 2 * this.SELECTION_PADDING,
-        height + 2 * this.SELECTION_PADDING,
-      );
-
-      const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top - this.SELECTION_PADDING,
-        },
-        {
-          x: left - this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-      ];
-
-      this.drawHandles(handles);
-    } else if (shape.type == "diamond") {
-      const left = shape.left;
-      const top = shape.top;
-      const width = shape.width;
-      const height = shape.height;
-
-      this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + 2 * this.SELECTION_PADDING,
-        height + 2 * this.SELECTION_PADDING,
-      );
-
-      const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top - this.SELECTION_PADDING,
-        },
-        {
-          x: left - this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-      ];
-
-      this.drawHandles(handles);
-    } else if (shape.type == "line") {
-      const left = Math.min(shape.sX, shape.eX);
-      const top = Math.min(shape.sY, shape.eY);
-
-      const width = Math.abs(shape.eX - shape.sX);
-      const height = Math.abs(shape.eY - shape.sY);
-
-      this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + this.SELECTION_PADDING * 2,
-        height + this.SELECTION_PADDING * 2,
-      );
-
-      const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top - this.SELECTION_PADDING,
-        },
-        {
-          x: left - this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-      ];
-
-      this.drawHandles(handles);
-    } else if (shape.type == "arrow") {
-      const left = Math.min(shape.sX, shape.eX);
-      const top = Math.min(shape.sY, shape.eY);
-      const width = Math.abs(shape.eX - shape.sX);
-      const height = Math.abs(shape.eY - shape.sY);
-
-      this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + this.SELECTION_PADDING * 2,
-        height + this.SELECTION_PADDING * 2,
-      );
-
-      const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top - this.SELECTION_PADDING,
-        },
-        {
-          x: left - this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-      ];
-
-      this.drawHandles(handles);
-    } else if (shape.type == "pencil") {
-      const xs = shape.points.map((p) => p.x);
-      const ys = shape.points.map((p) => p.y);
-
-      const left = Math.min(...xs);
-      const top = Math.min(...ys);
-      const width = Math.max(...xs) - left;
-      const height = Math.max(...ys) - top;
-
-      this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + this.SELECTION_PADDING * 2,
-        height + this.SELECTION_PADDING * 2,
-      );
-
-      const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top - this.SELECTION_PADDING,
-        },
-        {
-          x: left - this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-        {
-          x: left + width + this.SELECTION_PADDING,
-          y: top + height + this.SELECTION_PADDING,
-        },
-      ];
-
-      this.drawHandles(handles);
+        return {left,top, width: Math.max(...xs) - left, height: Math.max(...ys) - top};
     }
+    return {left:0,top:0,width:0,height:0};
+  }
 
+  private drawBox(left:number,top:number,width:number,height:number){
+    this.ctx.save();
+    this.ctx.strokeRect(
+        left - this.SELECTION_PADDING,
+        top - this.SELECTION_PADDING,
+        width + this.SELECTION_PADDING * 2,
+        height + this.SELECTION_PADDING * 2,
+      );
     this.ctx.restore();
   }
 
-  private drawHandles(handles: any) {
+  private getHandles(left:number,top:number,width:number,height:number){
+    const handles = [
+        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING, dir:"tl" },
+        { x: left + width + this.SELECTION_PADDING, y: top - this.SELECTION_PADDING, dir: "tr"},
+        { x: left - this.SELECTION_PADDING,y: top + height + this.SELECTION_PADDING, dir: "bl"},
+        { x: left + width + this.SELECTION_PADDING, y: top + height + this.SELECTION_PADDING, dir: "br"},
+      ];
+    return handles;
+  }
+
+  private drawHandles(handles: {x:number,y:number,dir:string}[]) {
     this.ctx.fillStyle = "#3b82f6";
 
     handles.map((h: any) => {
@@ -421,6 +269,72 @@ export class Game {
         this.HANDLE_SIZE,
       );
     });
+  }
+
+  private getRotationHandle(handles: {x:number,y:number,dir:string}[]){
+    const tl = handles.find(h => h.dir == "tl");
+    const tr = handles.find(h => h.dir == "tr");
+
+    const cx = (tl!.x + tr!.x) / 2;
+    const cy = (tl!.y + tr!.y) / 2;
+
+    const offset = 25 / this.scale;
+
+    const rx = cx, ry = cy - offset;
+
+    return {cx,cy,rx,ry};
+  }
+
+  private drawRotationHandle(handles: {x:number,y:number,dir:string}[]){
+    this.ctx.save();
+
+    const {cx,cy,rx,ry} = this.getRotationHandle(handles);
+
+    this.ctx.beginPath();
+    this.ctx.moveTo(cx,cy);
+    this.ctx.lineTo(rx,ry);
+    this.ctx.stroke();
+
+    this.ctx.beginPath();
+    this.ctx.arc(rx,ry,6/this.scale,0,Math.PI*2);
+    this.ctx.strokeStyle = "#3b82f6";
+    this.ctx.stroke();
+    
+    this.ctx.restore();
+  }
+
+  private drawSelectionBox(shape: Shape) {
+    this.ctx.save();
+
+    this.ctx.strokeStyle = "#3b82f6";
+    this.ctx.lineWidth = this.strokeWidth / this.scale;
+
+    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
+
+    const cx = left + width / 2;
+    const cy = top + height / 2;
+
+    if(shape.rotation){
+      this.ctx.translate(cx,cy);
+      this.ctx.rotate(shape.rotation);
+      this.ctx.translate(-cx,-cy);
+    }
+    this.drawBox(left,top,width,height);
+    const handles = this.getHandles(left,top,width,height);
+    this.drawRotationHandle(handles);
+    this.drawHandles(handles);
+
+    this.ctx.restore();
+  }
+
+  private isOnRotationHandle(shape: Shape, x: number, y: number){
+    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
+    const handles = this.getHandles(left,top,width,height);
+
+    const {rx,ry} = this.getRotationHandle(handles);
+    const distance = Math.sqrt((x-rx)**2 + (y-ry)**2);
+
+    return distance <= 20/this.scale;
   }
 
   snap(val: number) {
@@ -459,11 +373,7 @@ export class Game {
     this.needsRender = true;
   }
 
-  private isPointOnRect(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "rect" }>,
-  ): boolean {
+  private isPointOnRect(x: number, y: number, shape: Extract<Shape, { type: "rect" }>): boolean {
     const padding = 5 / this.scale;
 
     return (
@@ -474,11 +384,7 @@ export class Game {
     );
   }
 
-  private isPointOnEllipse(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "ellipse" }>,
-  ): boolean {
+  private isPointOnEllipse(x: number, y: number, shape: Extract<Shape, { type: "ellipse" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = x - shape.centerX;
@@ -490,11 +396,7 @@ export class Game {
     return (dx * dx) / (rX * rX) + (dy * dy) / (rY * rY) <= 1;
   }
 
-  private isPointOnDiamond(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "diamond" }>,
-  ): boolean {
+  private isPointOnDiamond(x: number, y: number, shape: Extract<Shape, { type: "diamond" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = Math.abs(x - shape.centerX);
@@ -506,11 +408,7 @@ export class Game {
     return dx / halfWidth + dy / halfHeight <= 1;
   }
 
-  private isPointOnLine(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "line" }>,
-  ): boolean {
+  private isPointOnLine(x: number,y: number,shape: Extract<Shape, { type: "line" }>): boolean {
     const padding = 5 / this.scale;
 
     const minX = Math.min(shape.sX, shape.eX) - padding;
@@ -521,11 +419,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnArrow(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "arrow" }>,
-  ): boolean {
+  private isPointOnArrow(x: number, y: number, shape: Extract<Shape, { type: "arrow" }>): boolean {
     const padding = 5 / this.scale;
 
     const minX = Math.min(shape.sX, shape.eX) - padding;
@@ -536,11 +430,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnPencil(
-    x: number,
-    y: number,
-    shape: Extract<Shape, { type: "pencil" }>,
-  ): boolean {
+  private isPointOnPencil(x: number, y: number, shape: Extract<Shape, { type: "pencil" }>): boolean {
     const padding = 5 / this.scale;
 
     const xs = shape.points.map((p) => p.x);
@@ -554,68 +444,16 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isOnResizeHandle(
-    shape: Shape,
-    x: number,
-    y: number,
-  ): "tl" | "tr" | "bl" | "br" | null {
-    let left: number;
-    let top: number;
-    let width: number;
-    let height: number;
+  private isOnResizeHandle(shape: Shape,x: number,y: number): "tl" | "tr" | "bl" | "br" | null {
+    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
 
-    if (shape.type === "rect") {
-      left = shape.x;
-      top = shape.y;
-      width = shape.width;
-      height = shape.height;
-    } else if (shape.type === "ellipse") {
-      left = shape.centerX - shape.radX;
-      top = shape.centerY - shape.radY;
-      width = shape.radX * 2;
-      height = shape.radY * 2;
-    } else if (shape.type === "diamond") {
-      left = shape.left;
-      top = shape.top;
-      width = shape.width;
-      height = shape.height;
-    } else if (shape.type === "line") {
-      left = Math.min(shape.sX, shape.eX);
-      top = Math.min(shape.sY, shape.eY);
-      width = Math.abs(shape.eX - shape.sX);
-      height = Math.abs(shape.eY - shape.sY);
-    } else if (shape.type === "arrow") {
-      left = Math.min(shape.sX, shape.eX);
-      top = Math.min(shape.sY, shape.eY);
-      width = Math.abs(shape.eX - shape.sX);
-      height = Math.abs(shape.eY - shape.sY);
-    } else if (shape.type === "pencil") {
-      const xs = shape.points.map((p) => p.x);
-      const ys = shape.points.map((p) => p.y);
-
-      left = Math.min(...xs);
-      top = Math.min(...ys);
-      width = Math.max(...xs) - left;
-      height = Math.max(...ys) - top;
-    } else {
-      return null;
-    }
-
-    const p = this.SELECTION_PADDING;
     const s = this.HANDLE_SIZE / this.scale;
 
-    const handles = {
-      tl: { x: left - p, y: top - p },
-      tr: { x: left + width + p, y: top - p },
-      bl: { x: left - p, y: top + height + p },
-      br: { x: left + width + p, y: top + height + p },
-    };
+    const handles = this.getHandles(left,top,width,height);
 
-    for (const key of ["tl", "tr", "bl", "br"] as const) {
-      const h = handles[key];
-
+    for (const h of handles) {
       if (Math.abs(x - h.x) <= s && Math.abs(y - h.y) <= s) {
-        return key;
+        return h.dir as "tl" | "tr" | "bl" | "br";
       }
     }
 
@@ -625,30 +463,31 @@ export class Game {
   private findShapeAtPoint(x: number, y: number) {
     for (let i = this.existingShapes.length - 1; i >= 0; i--) {
       const shape = this.existingShapes[i];
+      const local = this.getLocalPoint(shape,x,y);
 
       switch (shape.type) {
         case "rect":
-          if (this.isPointOnRect(x, y, shape)) return shape;
+          if (this.isPointOnRect(local.x, local.y, shape)) return shape;
           break;
 
         case "diamond":
-          if (this.isPointOnDiamond(x, y, shape)) return shape;
+          if (this.isPointOnDiamond(local.x, local.y, shape)) return shape;
           break;
 
         case "ellipse":
-          if (this.isPointOnEllipse(x, y, shape)) return shape;
+          if (this.isPointOnEllipse(local.x, local.y, shape)) return shape;
           break;
 
         case "arrow":
-          if (this.isPointOnArrow(x, y, shape)) return shape;
+          if (this.isPointOnArrow(local.x, local.y, shape)) return shape;
           break;
 
         case "line":
-          if (this.isPointOnLine(x, y, shape)) return shape;
+          if (this.isPointOnLine(local.x, local.y, shape)) return shape;
           break;
 
         case "pencil":
-          if (this.isPointOnPencil(x, y, shape)) return shape;
+          if (this.isPointOnPencil(local.x, local.y, shape)) return shape;
           break;
       }
     }
@@ -713,25 +552,7 @@ export class Game {
     this.ctx.lineWidth = this.strokeWidth / this.scale;
     this.ctx.strokeRect(b.x - this.SELECTION_PADDING, b.y - this.SELECTION_PADDING, b.width + 2 * this.SELECTION_PADDING, b.height + 2 * this.SELECTION_PADDING);
 
-    const handles = [
-      {
-        x: b.x - this.SELECTION_PADDING,
-        y: b.y - this.SELECTION_PADDING,
-      },
-      {
-        x: b.x + b.width + this.SELECTION_PADDING,
-        y: b.y - this.SELECTION_PADDING,
-      },
-      {
-        x: b.x - this.SELECTION_PADDING,
-        y: b.y + b.height + this.SELECTION_PADDING,
-      },
-      {
-        x: b.x + b.width + this.SELECTION_PADDING,
-        y: b.y + b.height + this.SELECTION_PADDING,
-      },
-    ];
-
+    const handles = this.getHandles(b.x,b.y,b.width,b.height);
     //this.drawHandles(handles);//may-be in future
     this.ctx.restore();
   }
@@ -758,36 +579,7 @@ export class Game {
         this.selectionRect.height,
       );
 
-      const handles = [
-        {
-          x: this.selectionRect.x - this.SELECTION_PADDING,
-          y: this.selectionRect.y - this.SELECTION_PADDING,
-        },
-        {
-          x:
-            this.selectionRect.x +
-            this.selectionRect.width +
-            this.SELECTION_PADDING,
-          y: this.selectionRect.y - this.SELECTION_PADDING,
-        },
-        {
-          x: this.selectionRect.x - this.SELECTION_PADDING,
-          y:
-            this.selectionRect.y +
-            this.selectionRect.height +
-            this.SELECTION_PADDING,
-        },
-        {
-          x:
-            this.selectionRect.x +
-            this.selectionRect.width +
-            this.SELECTION_PADDING,
-          y:
-            this.selectionRect.y +
-            this.selectionRect.height +
-            this.SELECTION_PADDING,
-        },
-      ];
+      const handles = this.getHandles(this.selectionRect.x,this.selectionRect.y,this.selectionRect.width,this.selectionRect.height);
 
       for (const h of handles) {
         this.ctx.fillStyle = "#3b82f6";
@@ -850,6 +642,15 @@ export class Game {
     if (!shape) return;
     this.ctx.save();
     this.applyStyle(shape);
+
+    const b = this.getShapeBounds(shape);
+
+    if(b && shape.rotation){
+      this.ctx.translate((b.left+b.right)/2,(b.top+b.bottom)/2);
+      this.ctx.rotate(shape.rotation);
+      this.ctx.translate(-(b.left+b.right)/2,-(b.top+b.bottom)/2);
+    }
+
     if (shape.type === "rect") {
       if (shape.fillColor !== "transparent")
         this.ctx.fillRect(shape.x, shape.y, shape.width, shape.height);
@@ -923,6 +724,27 @@ export class Game {
     this.ctx.restore();
   }
 
+  private getLocalPoint(shape: Shape, x: number, y: number){
+    if(!shape.rotation)
+      return {x,y};
+
+    const bounds = this.getShapeBounds(shape);
+
+    const cx = (bounds.left + bounds.right) / 2;
+    const cy = (bounds.top + bounds.bottom) / 2;
+
+    const dx = x - cx;
+    const dy = y - cy;
+
+    const cos = Math.cos(-shape.rotation);
+    const sin = Math.sin(-shape.rotation);
+
+    return {
+      x: cx + dx * cos - dy * sin,
+      y: cy + dx * sin + dy * cos
+    };
+  }
+
   private addShape(shape: Shape) {
     if(this.existingShapes.find(ashape => shape == ashape))return;
     this.existingShapes.push(shape);
@@ -955,7 +777,6 @@ export class Game {
   initHandlers() {
     this.socket.onmessage = (e) => {
       const received = JSON.parse(e.data);
-      console.log(e.data);
       switch (received.type) {
         case "room_snapshot":
           this.existingShapes = received.shapes;
@@ -969,7 +790,6 @@ export class Game {
             color: received.color,
           });
           this.onlineUsers?.(this.cursors.size + 1);
-          console.log(835, this.cursors);
           this.toastListener?.({
             message: `${received.name} joined`,
             color: received.color,
@@ -1018,32 +838,17 @@ export class Game {
 
   initKeyboardhandlers() {
     window.addEventListener("keydown", this.keyDownHandler);
-    window.addEventListener("keyup",this.keyUpHandler);
-  }
-
-  private keyUpHandler = (e: KeyboardEvent) => {
-    if (e.target instanceof HTMLInputElement ||e.target instanceof HTMLTextAreaElement)
-      return;
-
-    if(e.key == "Shift"){
-      this.shiftPressed = false;
-    }
   }
 
   private keyDownHandler = (e: KeyboardEvent) => {
     if (e.target instanceof HTMLInputElement ||e.target instanceof HTMLTextAreaElement)
       return;
 
-    if(e.key == "Shift"){
-      this.shiftPressed = true;
-    }
-
     if (e.ctrlKey && !e.shiftKey && e.key == "z") {
       e.preventDefault();
       this.undo();
       return;
     }
-
     //console.log(e.ctrlKey+" "+e.shiftKey+" "+e.key);//Z
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() == "z") {
       e.preventDefault();
@@ -1108,7 +913,6 @@ export class Game {
         this.setSelectedTool("hand");
         break;
     }
-    //console.log(e);
   };
 
   destroy() {
@@ -1124,7 +928,6 @@ export class Game {
     if (this.undoStack.length == 0) return;
 
     const lastAction = this.undoStack.pop();
-    //console.log(lastAction);
     if (!lastAction) return;
 
     if (lastAction.type == "add") {
@@ -1149,7 +952,6 @@ export class Game {
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
-      //console.log(`sending undo`, lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:undo",
@@ -1190,7 +992,6 @@ export class Game {
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
-      //console.log("sending redo", lastAction);
       this.socket.send(
         JSON.stringify({
           type: "history:redo",
@@ -1480,6 +1281,7 @@ export class Game {
         };
       }
     }
+    return {left:0,right:0,top:0,bottom:0};
   }
 
   private getGroupBounds(ids: Set<string>) {
@@ -1499,12 +1301,7 @@ export class Game {
       bottom = Math.max(bottom, b.bottom);
     }
 
-    return {
-      x: left,
-      y: top,
-      width: right - left,
-      height: bottom - top,
-    };
+    return { x: left, y: top, width: right - left, height: bottom - top};
   }
 
   private pointsInsideBounds(x: number, y: number, b: SelectionBound) {
@@ -1543,11 +1340,28 @@ export class Game {
 
       this.initialShape = shape? structuredClone(shape): null;
 
-      const resizeShape = shape ? this.isOnResizeHandle(shape, x, y) : null;
+      const local = shape ? this.getLocalPoint(shape,x,y): null;
 
-      if (resizeShape && shape) {
+      const resizeShape = shape && local? this.isOnResizeHandle(shape, local.x, local.y) : null;
+      const rotateShape = shape && local? this.isOnRotationHandle(shape, local.x, local.y) : null;
+
+      if (resizeShape) {
         this.interaction = "resizing";
         this.resizeHandle = resizeShape;
+        return;
+      }
+
+      if(rotateShape && shape){
+        this.interaction = "rotating";
+        this.canvas.style.cursor = "grabbing";
+
+        const boundings = this.getShapeBounds(shape);
+
+        const cx = (boundings?.left! +boundings?.right! )/2;
+        const cy = (boundings?.bottom! + boundings?.top! )/2;
+        
+        this.initialRotation = shape.rotation ?? 0;
+        this.rotationStartAngle = Math.atan2(y-cy,x-cx);
         return;
       }
 
@@ -1557,18 +1371,9 @@ export class Game {
         this.shapeSelection(null);
         this.interaction = "marquee";
 
-        this.marqueeStart = {
-          x: x,
-          y: y,
-        };
+        this.marqueeStart = { x: x, y: y};
 
-        this.selectionRect = {
-          x,
-          y,
-          width: 0,
-          height: 0,
-        };
-
+        this.selectionRect = {x, y, width: 0, height: 0};
         return;
       }
 
@@ -1726,7 +1531,7 @@ export class Game {
       return;
     }
 
-    if (this.interaction === "moving" || this.interaction === "resizing") {
+    if (this.interaction === "moving" || this.interaction === "resizing" || this.interaction == "rotating") {
       const shape = this.findShape(this.selectedShapeId!);
 
       if (this.initialShape && shape) {
@@ -1773,7 +1578,6 @@ export class Game {
       });
       this.redoStack = [];
 
-      //console.log(this.socket.readyState);
       if (this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
@@ -1783,7 +1587,6 @@ export class Game {
           }),
         );
       }
-      //console.log("sent shape 398");
       this.currentShape = null;
       this.interaction = "idle";
       this.selectedShapeId = null;
@@ -1811,7 +1614,6 @@ export class Game {
 
     if (now - this.lastCursorSent >= this.CURSOR_INTERVAL) {
       this.lastCursorSent = now;
-      console.log("cursor preview sent:", endX, endY);
       if (this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
@@ -1860,16 +1662,18 @@ export class Game {
     }
 
     if (this.selectedTool === "select" && this.interaction === "idle") {
-      const shape = this.selectedShapeId
-        ? this.findShape(this.selectedShapeId)
-        : null;
+      const shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
 
       if (!shape) {
         this.canvas.style.cursor = "default";
       } else {
-        const handle = this.isOnResizeHandle(shape, endX, endY);
+        const points = this.getLocalPoint(shape,endX,endY);
+        const handle = this.isOnResizeHandle(shape, points.x, points.y);
+        const onRotationHandle = this.isOnRotationHandle(shape,points.x,points.y);
 
-        if (handle === "tl" || handle === "br")
+        if(onRotationHandle)
+          this.canvas.style.cursor = "grab";
+        else if (handle === "tl" || handle === "br")
           this.canvas.style.cursor = "nwse-resize";
         else if (handle === "tr" || handle === "bl")
           this.canvas.style.cursor = "nesw-resize";
@@ -1881,8 +1685,8 @@ export class Game {
       const shape = this.findShape(this.selectedShapeId!);
 
       if (!shape) return;
-
-      const handle = this.isOnResizeHandle(shape, endX, endY);
+      const local = this.getLocalPoint(shape,endX,endY);
+      const handle = this.isOnResizeHandle(shape,local.x, local.y);
 
       if (handle) {
         if (handle === "br" || handle === "tl")
@@ -1898,29 +1702,29 @@ export class Game {
 
         switch (this.resizeHandle) {
           case "br":
-            shape.width = endX - shape.x;
-            shape.height = endY - shape.y;
+            shape.width = local.x - shape.x;
+            shape.height = local.y - shape.y;
             this.canvas.style.cursor = "nwse-resize";
             break;
 
           case "bl":
-            shape.x = endX;
-            shape.width = right - endX;
-            shape.height = endY - shape.y;
+            shape.x = local.x;
+            shape.width = right - local.x;
+            shape.height = local.y - shape.y;
             this.canvas.style.cursor = "nesw-resize";
             break;
 
           case "tr":
-            shape.y = endY;
-            shape.height = bottom - endY;
-            shape.width = endX - shape.x;
+            shape.y = local.x;
+            shape.height = bottom - local.y;
+            shape.width = local.x - shape.x;
             break;
 
           case "tl":
-            shape.x = endX;
-            shape.y = endY;
-            shape.width = right - endX;
-            shape.height = bottom - endY;
+            shape.x = local.x;
+            shape.y = local.y;
+            shape.width = right - local.x;
+            shape.height = bottom - local.y;
             break;
         }
 
@@ -1946,23 +1750,23 @@ export class Game {
 
         switch (this.resizeHandle) {
           case "tl":
-            newLeft = endX;
-            newTop = endY;
+            newLeft = local.x;
+            newTop = local.y;
             break;
 
           case "tr":
-            newRight = endX;
-            newTop = endY;
+            newRight = local.x;
+            newTop = local.y;
             break;
 
           case "bl":
-            newLeft = endX;
-            newBottom = endY;
+            newLeft = local.x;
+            newBottom = local.y;
             break;
 
           case "br":
-            newRight = endX;
-            newBottom = endY;
+            newRight = local.x;
+            newBottom = local.y;
             break;
         }
 
@@ -1974,33 +1778,34 @@ export class Game {
         shape.centerY = (newTop + newBottom) / 2;
         shape.radX = (newRight - newLeft) / 2;
         shape.radY = (newBottom - newTop) / 2;
+
       } else if (shape.type === "diamond") {
         const right = shape.left + shape.width;
         const bottom = shape.top + shape.height;
 
         switch (this.resizeHandle) {
           case "br":
-            shape.width = endX - shape.left;
-            shape.height = endY - shape.top;
+            shape.width = local.x - shape.left;
+            shape.height = local.y - shape.top;
             break;
 
           case "bl":
-            shape.width = right - endX;
-            shape.left = endX;
-            shape.height = endY - shape.top;
+            shape.width = right - local.x;
+            shape.left = local.x;
+            shape.height = local.y - shape.top;
             break;
 
           case "tr":
-            shape.width = endX - shape.left;
-            shape.top = endY;
-            shape.height = bottom - endY;
+            shape.width = local.x - shape.left;
+            shape.top = local.y;
+            shape.height = bottom - local.y;
             break;
 
           case "tl":
-            shape.left = endX;
-            shape.top = endY;
-            shape.width = right - endX;
-            shape.height = bottom - endY;
+            shape.left = local.x;
+            shape.top = local.y;
+            shape.width = right - local.x;
+            shape.height = bottom - local.y;
             break;
         }
 
@@ -2019,55 +1824,50 @@ export class Game {
       } else if (shape.type === "line") {
         const left = Math.min(shape.sX, shape.eX);
         const right = Math.max(shape.sX, shape.eX);
-        const top = Math.min(shape.sY, shape.eY);
-        const bottom = Math.max(shape.sY, shape.eY);
 
         switch (this.resizeHandle) {
           case "tl":
             if (Math.abs(shape.sX - left) < Math.abs(shape.eX - left)) {
-              shape.sX = endX;
-              shape.sY = endY;
+              shape.sX = local.x;
+              shape.sY = local.y;
             } else {
-              shape.eX = endX;
-              shape.eY = endY;
+              shape.eX = local.x;
+              shape.eY = local.y;
             }
             break;
 
           case "tr":
             if (Math.abs(shape.sX - right) < Math.abs(shape.eX - right)) {
-              shape.sX = endX;
-              shape.sY = endY;
+              shape.sX = local.x;
+              shape.sY = local.y;
             } else {
-              shape.eX = endX;
-              shape.eY = endY;
+              shape.eX = local.x;
+              shape.eY = local.y;
             }
             break;
 
           case "bl":
             if (Math.abs(shape.sX - left) < Math.abs(shape.eX - left)) {
-              shape.sX = endX;
-              shape.sY = endY;
+              shape.sX = local.x;
+              shape.sY = local.y;
             } else {
-              shape.eX = endX;
-              shape.eY = endY;
+              shape.eX = local.x;
+              shape.eY = local.y;
             }
             break;
 
           case "br":
             if (Math.abs(shape.sX - right) < Math.abs(shape.eX - right)) {
-              shape.sX = endX;
-              shape.sY = endY;
+              shape.sX = local.x;
+              shape.sY = local.y;
             } else {
-              shape.eX = endX;
-              shape.eY = endY;
+              shape.eX = local.x;
+              shape.eY = local.y;
             }
             break;
         }
       } else if (shape.type === "arrow") {
         const left = Math.min(shape.sX, shape.eX);
-        const right = Math.max(shape.sX, shape.eX);
-        const top = Math.min(shape.sY, shape.eY);
-        const bottom = Math.max(shape.sY, shape.eY);
 
         switch (this.resizeHandle) {
           case "tl":
@@ -2075,11 +1875,11 @@ export class Game {
           case "bl":
           case "br":
             if (Math.abs(shape.sX - left) < Math.abs(shape.eX - left)) {
-              shape.sX = endX;
-              shape.sY = endY;
+              shape.sX = local.x;
+              shape.sY = local.y;
             } else {
-              shape.eX = endX;
-              shape.eY = endY;
+              shape.eX = local.x;
+              shape.eY = local.y;
             }
             break;
         }
@@ -2099,23 +1899,23 @@ export class Game {
 
         switch (this.resizeHandle) {
           case "tl":
-            newLeft = endX;
-            newTop = endY;
+            newLeft = local.x;
+            newTop = local.y;
             break;
 
           case "tr":
-            newRight = endX;
-            newTop = endY;
+            newRight = local.x;
+            newTop = local.y;
             break;
 
           case "bl":
-            newLeft = endX;
-            newBottom = endY;
+            newLeft = local.x;
+            newBottom = local.y;
             break;
 
           case "br":
-            newRight = endX;
-            newBottom = endY;
+            newRight = local.x;
+            newBottom = local.y;
             break;
         }
 
@@ -2133,6 +1933,23 @@ export class Game {
         }
       }
 
+      this.needsRender = true;
+      return;
+    }
+
+    if(this.interaction == "rotating"){
+      const shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
+      if(!shape)return;
+
+      const bounds = this.getShapeBounds(shape);
+
+      const cx = (bounds?.left! + bounds?.right!) / 2;
+      const cy = (bounds?.top! + bounds?.bottom!) / 2;
+
+      const currentAngle = Math.atan2(endY - cy, endX - cx);
+      const delta = currentAngle - this.rotationStartAngle;
+
+      shape.rotation = this.initialRotation + delta;
       this.needsRender = true;
       return;
     }
