@@ -30,7 +30,20 @@ export type HistoryAction =
       type: "update";
       before: Shape;
       after: Shape;
-    };
+    }
+  | {
+    type: "group-add";
+    shapes: Shape[]
+  }
+  | {
+    type: "group-delete";
+    shapes: Shape[]
+  }
+  | {
+    type: "group-update";
+    before: Shape[];
+    after: Shape[]
+  };
 
 export type BaseShape =
   | {
@@ -93,3 +106,11 @@ export type Toast = {
   message : string;
   color : Color
 }
+
+export type SelectionBound = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
