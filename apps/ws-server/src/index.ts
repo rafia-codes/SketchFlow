@@ -27,7 +27,7 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string}) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[]) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
@@ -44,6 +44,19 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
       }
     })
     return;
+  }
+
+  if(type == "layer:update"){
+    const shapes = data as Shape[];
+    rooms.get(roomId)?.forEach((user,userws) => {
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          roomId: roomId,
+          shapes: shapes,
+        }))
+      }
+    })
   }
 
   if(type == "user:joined" || type == "user:left"){
@@ -199,6 +212,21 @@ wss.on("connection", (ws, request) => {
             console.log(error);
           }
           break;
+
+        case "cursor:update":
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+          const x = parsedData.x;
+          const y = parsedData.y;
+
+          broadcastToRoom(ws,"cursor:update",roomId,{ x: x, y: y});
+
+        break;
 
         case "shape:preview":
           try {
@@ -547,21 +575,20 @@ wss.on("connection", (ws, request) => {
           }
           break;
         
-        case "cursor:update":
-          if (!client.authenticated) return;
+        case "layer:update":
+          try {
+            if (!client.authenticated) return;
 
-          if (!rooms.has(parsedData.roomId)) return;
+            if (!rooms.has(parsedData.roomId)) return;
 
-          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
 
-          const roomId = parsedData.roomId;
-          const x = parsedData.x;
-          const y = parsedData.y;
-
-          broadcastToRoom(ws,"cursor:update",roomId,{ x: x, y: y});
-
-        break;
-
+            const roomId = parsedData.roomId;
+            broadcastToRoom(ws,"layer:update",roomId,parsedData.shapes);
+            break;
+          }catch{
+            console.log('Error in layer update');
+          }
       }
     } catch (error) {
       console.log(480);

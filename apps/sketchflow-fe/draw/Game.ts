@@ -751,6 +751,11 @@ export class Game {
     this.needsRender = true;
   }
 
+  private findShapeIndex(shapeId: string): number {
+    const idx = this.existingShapes.findIndex(shape => shape.id === shapeId);
+    return idx;
+  }
+
   private findShape(shapeId: string): Shape | undefined {
     return this.existingShapes.find((shape) => shape.id === shapeId);
   }
@@ -825,6 +830,9 @@ export class Game {
           break;
         case "shape:delete":
           this.deleteShape(received.shape.id);
+          break;
+        case "layer:update":
+          this.existingShapes = received.shapes;
           break;
       }
     };
@@ -924,6 +932,59 @@ export class Game {
     window.removeEventListener("keydown", this.keyDownHandler);
   }
 
+  bringForward(){
+    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
+    if(idx == -1 || idx == this.existingShapes.length - 1)
+      return;
+    const before = structuredClone(this.existingShapes);
+    [this.existingShapes[idx],this.existingShapes[idx+1]] = [this.existingShapes[idx+1],this.existingShapes[idx]];
+    this.afterLayerOperation(before);  
+  }
+
+  sendBackward(){
+    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
+    if(idx <= 0)
+      return;
+    const before = structuredClone(this.existingShapes);
+    [this.existingShapes[idx],this.existingShapes[idx-1]] = [this.existingShapes[idx-1],this.existingShapes[idx]];
+    this.afterLayerOperation(before);  
+  }
+
+  bringToFront(){
+    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
+    if(idx == -1)return;
+    const before = structuredClone(this.existingShapes);
+    const shape = this.existingShapes.splice(idx,1)[0];
+    this.existingShapes.push(shape);
+    this.afterLayerOperation(before);  
+  }
+
+  sendToBack(){
+    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
+    if(idx == -1)return;
+    const before = structuredClone(this.existingShapes);
+    const shape = this.existingShapes.splice(idx,1)[0];
+    this.existingShapes.unshift(shape);  
+    this.afterLayerOperation(before);  
+  }
+
+  private afterLayerOperation(before: Shape[]){
+    this.undoStack.push({
+      type:"layer",
+      before: structuredClone(before),
+      after: structuredClone(this.existingShapes)
+    });
+    this.redoStack = [];
+    this.needsRender = true;
+    if(this.socket.readyState == WebSocket.OPEN){
+      this.socket.send(JSON.stringify({
+        type: "layer:update",
+        roomId: this.roomId,
+        shapes: this.existingShapes
+      }))
+    }
+  }
+
   undo() {
     if (this.undoStack.length == 0) return;
 
@@ -947,6 +1008,8 @@ export class Game {
       for(const shape of lastAction.before){
         this.updateShape(shape.id,structuredClone(shape));
       }
+    } else if(lastAction.type === "layer"){
+      this.existingShapes = structuredClone(lastAction.before);
     }
 
     this.needsRender = true;
@@ -987,6 +1050,8 @@ export class Game {
       for(const shape of lastAction.after){
         this.updateShape(shape.id,structuredClone(shape));
       }
+    } else if(lastAction.type === "layer"){
+      this.existingShapes = structuredClone(lastAction.after);
     }
 
     this.needsRender = true;

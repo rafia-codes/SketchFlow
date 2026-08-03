@@ -45,6 +45,11 @@ export type HistoryAction =
     type: "group-update";
     before: Shape[];
     after: Shape[]
+  } 
+  | {
+    type: "layer",
+    before: Shape[],
+    after: Shape[]
   };
 
 export type BaseShape =

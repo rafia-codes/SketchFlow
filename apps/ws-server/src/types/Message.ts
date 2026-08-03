@@ -38,7 +38,9 @@ export type Message = {
     x : string,
     y : string
 } | {
-    type : "cursor:remove",
+    type : "layer:update",
+    roomId : string,
+    shapes : Shape[]
 }
 
 export type CursorPreview = {

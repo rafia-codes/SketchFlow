@@ -17,16 +17,21 @@ import {
   CopyPlus,
   Trash2,
   Grid3X3,
-  Grid2X2Check
+  Grid2X2Check,
+  MoveUp,
+  MoveDown,
+  BringToFront,
+  SendToBack,
+  
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 import { Toast } from "@/draw/types";
 
-export type Tool = "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
+export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
-const STROKE_COLORS = ["#1f2937", "#ef4444", "#f59e0b", "#10b981", "#3b82f6", "#8b5cf6"];
-const BG_COLORS = ["#fee2e2", "#fef3c7", "#dcfce7", "#dbeafe", "#ede9fe", "#fce7f3"];
+const STROKE_COLORS = ["#1f2937","#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6",];
+const BG_COLORS = ["#fee2e2","#fef3c7","#dcfce7","#dbeafe","#ede9fe","#fce7f3",];
 const FILL_STYLES = ["hachure", "cross-hatch", "solid"] as const;
 const STROKE_WIDTHS = [1, 2, 4] as const;
 const STROKE_STYLES = ["solid", "dashed", "dotted"] as const;
@@ -40,7 +45,7 @@ export function Canvas({
 }) {
   const canvasref = useRef<HTMLCanvasElement>(null);
   const [game, setGame] = useState<Game>();
-  const [shapeSelected,setShapeSelected] = useState(false);
+  const [shapeSelected, setShapeSelected] = useState(false);
   const [selectedTool, setSelectedTool] = useState<Tool>("select");
   const [scale, setScale] = useState<number>(1);
   const router = useRouter();
@@ -58,9 +63,9 @@ export function Canvas({
   const [strokeWidth, setStrokeWidth] = useState(2);
 
   const [opacity, setOpacity] = useState(1);
-  const [onlineUsers,setOnlineUsers] = useState(1);
-  const [toast,setToast] = useState<Toast | null>(null);
-  const [snapToGrid,setSnapToGrid] = useState<boolean>(false);
+  const [onlineUsers, setOnlineUsers] = useState(1);
+  const [toast, setToast] = useState<Toast | null>(null);
+  const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
 
   const primaryTools = [
     "rect",
@@ -96,7 +101,7 @@ export function Canvas({
     strokeStyle,
     strokeWidth,
     opacity,
-    snapToGrid
+    snapToGrid,
   ]);
 
   useEffect(() => {
@@ -119,23 +124,22 @@ export function Canvas({
   }, []);
 
   useEffect(() => {
-      if (!game) return;
+    if (!game) return;
 
-      let timer: any;
+    let timer: any;
 
-      game.setToastListener((toastData) => {
-        setToast(toastData);
+    game.setToastListener((toastData) => {
+      setToast(toastData);
 
-        clearTimeout(timer);
+      clearTimeout(timer);
 
-        timer = setTimeout(() => {
-          setToast(null);
-        }, 3000);
-      });
+      timer = setTimeout(() => {
+        setToast(null);
+      }, 3000);
+    });
 
-      return () => clearTimeout(timer);
+    return () => clearTimeout(timer);
   }, [game]);
-
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
@@ -160,8 +164,8 @@ export function Canvas({
   };
 
   const onSnapToggle = () => {
-    setSnapToGrid(prev => !prev);
-  }
+    setSnapToGrid((prev) => !prev);
+  };
 
   const onShare = async () => {
     const url = window.location.href;
@@ -196,11 +200,11 @@ export function Canvas({
 
   const onDuplicate = () => {
     game?.duplicateShape();
-  }
+  };
 
   const onDelete = () => {
     game?.deleteSelectedShape();
-  }
+  };
 
   return (
     <div
@@ -231,9 +235,8 @@ export function Canvas({
         onToggle={onToggle}
         onSnapToggle={onSnapToggle}
       />
-      
-       {primaryTools.includes(selectedTool) && 
-       <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
+
+        <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
           <SwatchRow
             label="Stroke"
             colors={STROKE_COLORS}
@@ -254,7 +257,9 @@ export function Canvas({
             onChange={(v) => setFillStyle(v as typeof fillStyle)}
           /> */}
           <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Stroke width</p>
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+              Stroke width
+            </p>
             <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
               {STROKE_WIDTHS.map((w) => (
                 <button
@@ -276,7 +281,9 @@ export function Canvas({
             </div>
           </div>
           <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Stroke style</p>
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+              Stroke style
+            </p>
             <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
               {STROKE_STYLES.map((s) => (
                 <button
@@ -298,7 +305,13 @@ export function Canvas({
                       stroke="#fff"
                       strokeWidth="2"
                       strokeLinecap="round"
-                      strokeDasharray={s === "dashed" ? "6 4" : s === "dotted" ? "1 4" : undefined}
+                      strokeDasharray={
+                        s === "dashed"
+                          ? "6 4"
+                          : s === "dotted"
+                            ? "1 4"
+                            : undefined
+                      }
                     />
                   </svg>
                 </button>
@@ -306,27 +319,66 @@ export function Canvas({
             </div>
           </div>
           <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">Opacity</p>
+            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+              Opacity
+            </p>
             <input
               type="range"
               min={0}
               max={100}
-              value={opacity*100}
-              onChange={(e) => setOpacity(Number(e.target.value)/100)}
+              value={opacity * 100}
+              onChange={(e) => setOpacity(Number(e.target.value) / 100)}
               className="w-full accent-primary"
             />
-            <p className="text-right text-xs text-muted-foreground">{Math.round(opacity*100)}%</p>
+            <p className="text-right text-xs text-muted-foreground">
+              {Math.round(opacity * 100)}%
+            </p>
+          </div>
+
+          <div>
+            <p className="text-gray-300 text-xs font-medium mb-2">Layer</p>
+
+            <div className="grid grid-cols-4 gap-2">
+              <button
+                onClick={() => game?.bringForward()}
+                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+                title="Bring Forward"
+              >
+                <MoveUp size={18} />
+              </button>
+
+              <button
+                onClick={() => game?.sendBackward()}
+                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+                title="Send Backward"
+              >
+                <MoveDown size={18} />
+              </button>
+
+              <button
+                onClick={() => game?.bringToFront()}
+                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+                title="Bring To Front"
+              >
+                <BringToFront size={18} />
+              </button>
+
+              <button
+                onClick={() => game?.sendToBack()}
+                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+                title="Send To Back"
+              >
+                <SendToBack size={18} />
+              </button>
+            </div>
           </div>
         </aside>
-       }
 
       <div className="absolute top-6 right-4 flex gap-3">
         <div className="flex items-center gap-2 text-gray-300">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-sm font-medium">
-              {onlineUsers} Online
-            </span>
-          </div>
+          <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
+          <span className="text-sm font-medium">{onlineUsers} Online</span>
+        </div>
         <button
           onClick={onShare}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium 
@@ -352,19 +404,18 @@ export function Canvas({
         </button>
       </div>
 
-              
-        {toast && (
-          <div className="toast">
-            <div
-              className="toast-dot"
-              style={{
-                backgroundColor: toast.color
-              }}
-            />
+      {toast && (
+        <div className="toast">
+          <div
+            className="toast-dot"
+            style={{
+              backgroundColor: toast.color,
+            }}
+          />
 
-            {toast.message}
-          </div>
-        )}
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }
@@ -387,7 +438,7 @@ function Topbar({
 }: {
   selectedTool: Tool;
   setSelectedTool: (s: Tool) => void;
-  shapeSelected: boolean
+  shapeSelected: boolean;
   onZoomIn?: () => void;
   onZoomOut?: () => void;
   onUndo?: () => void;
@@ -396,7 +447,7 @@ function Topbar({
   onDelete?: () => void;
   onToggle?: () => void;
   onSnapToggle?: () => void;
-  isSnapToGrid: boolean; 
+  isSnapToGrid: boolean;
   isLocked: boolean;
   setIsLocked: (s: boolean) => void;
 }) {
@@ -481,20 +532,57 @@ function Topbar({
 
       <Divider />
 
-      <ToolButton onClick={onZoomOut} disabled = {false} icon={<ZoomOut size={18} />} />
-      <ToolButton onClick={onZoomIn} disabled = {false} icon={<ZoomIn size={18} />} />
+      <ToolButton
+        onClick={onZoomOut}
+        disabled={false}
+        icon={<ZoomOut size={18} />}
+      />
+      <ToolButton
+        onClick={onZoomIn}
+        disabled={false}
+        icon={<ZoomIn size={18} />}
+      />
 
       <Divider />
 
-      <ToolButton onClick={onUndo} title="Undo (Ctrl+Z)" disabled = {false} icon={<Undo2 size={18} />} />
-      <ToolButton onClick={onRedo} title="Redo (Ctrl+Shift+Z)" disabled = {false} icon={<Redo2 size={18} />} />
+      <ToolButton
+        onClick={onUndo}
+        title="Undo (Ctrl+Z)"
+        disabled={false}
+        icon={<Undo2 size={18} />}
+      />
+      <ToolButton
+        onClick={onRedo}
+        title="Redo (Ctrl+Shift+Z)"
+        disabled={false}
+        icon={<Redo2 size={18} />}
+      />
 
       <Divider />
 
-      <ToolButton onClick={onSnapToggle} title="Snap to Grid" active={isSnapToGrid} icon={<Grid2X2Check size={18} />} />
-      <ToolButton onClick={onToggle} title="Toggle Grid" icon={<Grid3X3 size={18} />} />
-      <ToolButton onClick={onDuplicate} title="Duplicate (Ctrl+D)" disabled={!shapeSelected} icon={<CopyPlus size={18} />}/>
-      <ToolButton onClick={onDelete} title="Delete (Del)" disabled={!shapeSelected} icon={<Trash2 size={18}/>}/>
+      <ToolButton
+        onClick={onSnapToggle}
+        title="Snap to Grid"
+        active={isSnapToGrid}
+        icon={<Grid2X2Check size={18} />}
+      />
+      <ToolButton
+        onClick={onToggle}
+        title="Toggle Grid"
+        icon={<Grid3X3 size={18} />}
+      />
+      <ToolButton
+        onClick={onDuplicate}
+        title="Duplicate (Ctrl+D)"
+        disabled={!shapeSelected}
+        icon={<CopyPlus size={18} />}
+      />
+      <ToolButton
+        onClick={onDelete}
+        title="Delete (Del)"
+        disabled={!shapeSelected}
+        icon={<Trash2 size={18} />}
+      />
     </div>
   );
 }
@@ -504,17 +592,17 @@ function ToolButton({
   onClick,
   icon,
   disabled = false,
-  title
+  title,
 }: {
   active?: boolean;
   onClick?: () => void;
   icon: React.ReactNode;
   disabled?: boolean;
-  title?: string
+  title?: string;
 }) {
   return (
     <button
-      disabled = {disabled}
+      disabled={disabled}
       title={title}
       onClick={onClick}
       style={{
@@ -528,8 +616,8 @@ function ToolButton({
         alignItems: "center",
         justifyContent: "center",
         transition: "all 0.15s ease",
-        opacity: disabled? 0.4 : 1,
-        cursor: disabled?"not-allowed": "pointer"
+        opacity: disabled ? 0.4 : 1,
+        cursor: disabled ? "not-allowed" : "pointer",
       }}
       onMouseEnter={(e) => {
         if (!active) e.currentTarget.style.background = "#eee";
@@ -556,7 +644,6 @@ function Divider() {
   );
 }
 
-
 function SwatchRow({
   label,
   colors,
@@ -575,7 +662,9 @@ function SwatchRow({
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-gray-300 text-xs font-medium text-muted-foreground">{label}</p>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground">
+          {label}
+        </p>
         <ColorPreview color={value} />
       </div>
       <div className="flex flex-wrap gap-2">
