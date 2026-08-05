@@ -636,7 +636,16 @@ export class Game {
     }
 
     this.ctx.globalAlpha = shape.opacity;
+    //this.drawFillStyle(shape,shape.fillStyle);
   }
+
+  // private drawFillStyle(shape:Shape,fillStyle:"solid" | "cross-hatch" | "hachure"){
+  //   if(fillStyle == "hachure"){
+  //     const pattern = this.ctx.createPattern(,"repeat");
+  //     this.ctx.fillStyle = pattern!;
+  //     this.ctx.fill();
+  //   }
+  // }
 
   private drawShape(shape: Shape | null) {
     if (!shape) return;
@@ -723,6 +732,57 @@ export class Game {
     }
     this.ctx.restore();
   }
+
+  updateSelectedShape(updates: Partial<Shape>){
+    if(this.selectedShapeId){
+      const idx = this.findShapeIndex(this.selectedShapeId);
+      if(idx==-1)return;
+      const before = structuredClone(this.existingShapes[idx]);
+      //@ts-ignore
+      this.existingShapes[idx] = {...this.existingShapes[idx],...updates};
+
+      this.undoStack.push({
+        type:"update",
+        before: before,
+        after: structuredClone(this.existingShapes[idx])
+      });
+
+      this.redoStack = [];
+      this.needsRender = true;
+
+      this.socket.send(JSON.stringify({
+        type:"shape:update",
+        roomId: this.roomId,
+        shape: this.existingShapes[idx]
+      }));
+    }
+    else if(this.groupSelection){
+      const before = [...this.groupSelection.shapeIds].map(id => structuredClone(this.findShape(id))!);
+      const after = [];
+      for(const shapeId of this.groupSelection.shapeIds){
+        const idx = this.findShapeIndex(shapeId);
+        if(idx == -1)return;
+        //@ts-ignore
+        this.existingShapes[idx] = {...this.existingShapes[idx],...updates};
+        after.push(structuredClone(this.existingShapes[idx]));
+
+        this.socket.send(JSON.stringify({
+            type: "shape:update",
+            roomId: this.roomId,
+            shape: this.existingShapes[idx]
+        }));
+      }
+
+      this.undoStack.push({
+        type:"group-update",
+        before:before,
+        after: after
+      });
+      this.redoStack = [];
+      this.needsRender = true;
+    }
+  }
+
 
   private getLocalPoint(shape: Shape, x: number, y: number){
     if(!shape.rotation)
@@ -1374,6 +1434,7 @@ export class Game {
   }
 
   mouseDownHandler = (e: MouseEvent) => {
+    console.log('mouse down target', e.target);
     if (this.selectedTool === "hand") {
       this.isPanning = true;
       this.canvas.style.cursor = "grabbing";

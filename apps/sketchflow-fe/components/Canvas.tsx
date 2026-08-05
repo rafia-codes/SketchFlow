@@ -80,29 +80,20 @@ export function Canvas({
     game?.setSelectedTool(selectedTool);
     game?.setSelectionListener(setShapeSelected);
     game?.setToolListener(setSelectedTool);
-    game?.setOnlineUsersListener(setOnlineUsers);
+    game?.setOnlineUsersListener(setOnlineUsers);    
+  }, [game,selectedTool]);
+
+  useEffect(()=>{
     game?.setSnapToGrid(snapToGrid);
-    game?.setScale(scale);
+  },[game,snapToGrid]);
+
+  useEffect(()=>{
     game?.setIsLocked(isLocked);
-    game?.setFillColor(fillColor);
-    game?.setFillStyle(fillStyle);
-    game?.setStrokeColor(strokeColor);
-    game?.setStrokeStyle(strokeStyle);
-    game?.setStrokeWidth(strokeWidth);
-    game?.setOpacity(opacity);
-  }, [
-    selectedTool,
-    game,
-    scale,
-    isLocked,
-    fillColor,
-    fillStyle,
-    strokeColor,
-    strokeStyle,
-    strokeWidth,
-    opacity,
-    snapToGrid,
-  ]);
+  },[game,isLocked]);
+
+  useEffect(()=>{
+    game?.setScale(scale); 
+  },[game,scale]);
 
   useEffect(() => {
     if (canvasref.current) {
@@ -140,6 +131,48 @@ export function Canvas({
 
     return () => clearTimeout(timer);
   }, [game]);
+
+  useEffect(()=>{
+    game?.setStrokeColor(strokeColor);
+    game?.updateSelectedShape({
+      strokeColor: strokeColor
+    })
+  },[strokeColor]);
+
+  useEffect(()=>{
+    game?.setStrokeWidth(strokeWidth);
+    game?.updateSelectedShape({
+      strokeWidth: strokeWidth
+    })
+  },[strokeWidth]);
+
+  useEffect(()=>{
+    game?.setStrokeStyle(strokeStyle);
+    game?.updateSelectedShape({
+      strokeStyle: strokeStyle
+    })
+  },[strokeStyle]);
+
+  useEffect(()=>{
+    game?.setFillColor(fillColor);
+    game?.updateSelectedShape({
+      fillColor: fillColor
+    })
+  },[fillColor]);
+
+  useEffect(()=>{
+    game?.setFillStyle(fillStyle);
+    game?.updateSelectedShape({
+      fillStyle: fillStyle
+    })
+  },[fillStyle]);
+
+  useEffect(()=>{
+    game?.setOpacity(opacity);
+    game?.updateSelectedShape({
+      opacity: opacity
+    })
+  },[opacity]);
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
@@ -250,12 +283,14 @@ export function Canvas({
             onChange={setFillColor}
             allowTransparent
           />
-          {/* <SegRow
-            label="Fill"
-            options={FILL_STYLES as unknown as readonly string[]}
+          <SegRow
+            label="Fill Style"
+            options={FILL_STYLES}
             value={fillStyle}
-            onChange={(v) => setFillStyle(v as typeof fillStyle)}
-          /> */}
+            onChange={(v) =>
+              setFillStyle(v as "solid" | "cross-hatch" | "hachure")
+            }
+          />
           <div>
             <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
               Stroke width
@@ -739,36 +774,36 @@ function ColorPreview({ color }: { color: string }) {
   );
 }
 
-// function SegRow({
-//   label,
-//   options,
-//   value,
-//   onChange,
-// }: {
-//   label: string;
-//   options: readonly string[];
-//   value: string;
-//   onChange: (v: string) => void;
-// }) {
-//   return (
-//     <div>
-//       <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">{label}</p>
-//       <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
-//         {options.map((o) => (
-//           <button
-//             key={o}
-//             onClick={() => onChange(o)}
-//             title={o}
-//             className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${
-//               value === o
-//                 ? "bg-gray-600 text-foreground ring-2 ring-primary/60"
-//                 : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
-//             }`}
-//           >
-//             {o}
-//           </button>
-//         ))}
-//       </div>
-//     </div>
-//   );
-// }
+function SegRow({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: readonly string[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <div>
+      <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">{label}</p>
+      <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+        {options.map((o) => (
+          <button
+            key={o}
+            onClick={() => onChange(o)}
+            title={o}
+            className={`flex-1 px-2 py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${
+              value === o
+                ? "bg-gray-600 text-foreground ring-2 ring-primary/60"
+                : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+            }`}
+          >
+            {o}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

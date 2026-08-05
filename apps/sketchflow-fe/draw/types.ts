@@ -7,20 +7,18 @@ type Color = string;
 
 export type ShapeStyle = {
   strokeColor: Color;//done
-  fillColor: Color;//done
-
   strokeWidth: number;//done
-
   strokeStyle: "solid" | "dashed" | "dotted";//done
+
+  fillColor: Color;//done
   fillStyle: "solid" | "cross-hatch" | "hachure"; 
 
   opacity: number;//done
 
-  rotation?: number;
+  rotation?: number;//done
 }
 
-export type HistoryAction =
-  | {
+export type HistoryAction = {
       type: "add";
       shape: Shape;
     }
