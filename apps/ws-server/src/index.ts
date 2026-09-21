@@ -27,7 +27,7 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[]) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[] | string[]) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
@@ -54,6 +54,34 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
           type: type,
           roomId: roomId,
           shapes: shapes,
+        }))
+      }
+    })
+    return;
+  }
+
+  if(type == "shapes:add" || type == "shapes:update"){
+    const shapes = data as Shape[];
+    rooms.get(roomId)?.forEach((user,userws) => {
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          roomId: roomId,
+          shapes: shapes
+        }))
+      }
+    })
+    return;
+  }
+
+  if(type == "shapes:delete"){
+    const shapeIds = data as unknown as string[];
+    rooms.get(roomId)?.forEach((user,userws) => {
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          roomId: roomId,
+          shapeIds: shapeIds
         }))
       }
     })
@@ -290,6 +318,42 @@ wss.on("connection", (ws, request) => {
           }
           break;
 
+        case "shapes:add":
+          try {
+            //console.time("shape:add");
+            if (!client.authenticated) return;
+
+            if (!rooms.has(parsedData.roomId)) return;
+
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+            const roomId = parsedData.roomId;
+            const shapes = parsedData.shapes;
+
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shapes:add", roomId, shapes);
+            //console.timeEnd("broadcast");
+
+            //console.time("db:write");
+            if (!roomId.startsWith("guest")) {
+              //storing in db
+              await prismaClient.chat.createMany({
+                data: shapes.map((shape) => ({
+                  shapeId : shape.id,
+                  roomId: Number(roomId),
+                  message: JSON.stringify(shape),
+                  userId: getClient(ws)?.userId
+                })),
+                skipDuplicates: true
+              });
+            }
+            //console.timeEnd("db:write");
+            //console.timeEnd("shape:add");
+          } catch (error) {
+            console.log(error);
+          }
+          break;
+
         case "shape:delete":
           try {
             if (!client.authenticated) return;
@@ -322,6 +386,40 @@ wss.on("connection", (ws, request) => {
               await prismaClient.chat.delete({
                 where: {
                   shapeId: parsedData.shape.id,
+                },
+              });
+            }
+            //console.timeEnd("db:delete");
+            //console.timeEnd("shape:add");
+          } catch (error) {
+            console.log(error);
+          }
+          break;
+
+        case "shapes:delete":
+          try {
+            if (!client.authenticated) return;
+
+            if (!rooms.has(parsedData.roomId)) return;
+
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+            const roomId = parsedData.roomId;
+            const shapeIds = parsedData.shapeIds;
+
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shapes:delete", roomId, shapeIds);
+            //console.timeEnd("broadcast");
+
+            //console.time("db:delete");
+            if (!roomId.startsWith("guest")) {
+              //deleting in db
+              await prismaClient.chat.delete({
+                where: {
+                  shapeId: {
+                    in: shapeIds
+                  },
+                  roomId: Number(roomId)
                 },
               });
             }
@@ -378,8 +476,43 @@ wss.on("connection", (ws, request) => {
           }
           break;
 
+        case "shapes:update":
+          try {
+            if (!client.authenticated) return;
+
+            if (!rooms.has(parsedData.roomId)) return;
+
+            if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+            const roomId = parsedData.roomId;
+            const updatedShapes = parsedData.shapes;
+
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shapes:update", roomId, updatedShapes);
+            //console.timeEnd("broadcast");
+
+            //console.time("db:update");
+            if (!roomId.startsWith("guest")) {
+              //updating in db
+              await prismaClient.$transaction(
+                updatedShapes.map((shape) => 
+                prismaClient.chat.update({
+                  where:{shapeId: shape.id, roomId: Number(roomId)},
+                  data: {message : JSON.stringify(shape)}
+                })
+                )
+              )
+            }
+            //console.timeEnd("db:update");
+            //console.timeEnd("shape:add");
+          } catch (error) {
+            console.log(error);
+          }
+          break;
+
         case "history:undo":
           try {
+            console.log(515);
             if (!client.authenticated) return;
 
             if (!rooms.has(parsedData.roomId)) return;
@@ -479,7 +612,63 @@ wss.on("connection", (ws, request) => {
 
                 break;
 
-                case "layer":{
+              case "group-add":{
+                const shapesIds = action.shapes.map(s => s.id);
+
+                broadcastToRoom(ws,"shapes:delete",roomId,shapesIds);
+
+                if(!roomId.startsWith('guest')){
+                  await prismaClient.chat.deleteMany({
+                    where: {
+                      shapeId : {
+                        in : shapesIds
+                      },
+                      roomId: Number(roomId)
+                    }
+                  });
+                }
+              }
+              break;
+
+              case "group-delete":{
+                const shapes: Shape[] = action.shapes;
+
+                broadcastToRoom(ws,"shapes:add",roomId,shapes);
+
+                if(!roomId.startsWith('guest')){
+                  await prismaClient.chat.createMany({
+                    data: shapes.map((s) => ({
+                      shapeId: s.id,
+                      roomId: Number(roomId),
+                      message: JSON.stringify(s),
+                      userId: getClient(ws)?.userId
+                    })),
+                    skipDuplicates: true
+                  })
+                }
+              }
+              break;
+
+              case "group-update":{
+                console.log("653 server: undoing group-update", action.before?.length, "shapes");
+                const shapes: Shape[] = action.before;
+
+                broadcastToRoom(ws, "shapes:update", roomId, shapes);
+
+                if(!roomId.startsWith('guest')){
+                  await prismaClient.$transaction(
+                    shapes.map((shape) => 
+                    prismaClient.chat.updateMany({
+                      where:{ shapeId : shape.id, roomId: Number(roomId)},
+                      data: { message: JSON.stringify(shape)}
+                    })
+                    )
+                  )
+                }
+              }
+              break;
+
+              case "layer":{
                   const shapesToRestore: Shape[] = action.before;
 
                   broadcastToRoom(ws,"layer:update",roomId,shapesToRestore);
@@ -516,7 +705,7 @@ wss.on("connection", (ws, request) => {
             const action = parsedData.action;
 
             switch(action.type){
-              case "add":
+            case "add":
                 broadcastToRoom(ws, "shape:add", roomId, action.shape);
 
                 const alreadyexists = await prismaClient.chat.findUnique({
@@ -595,7 +784,62 @@ wss.on("connection", (ws, request) => {
                 });
               break;
 
-              case "layer":{
+            case "group-add":{
+              const shapes: Shape[] = action.shapes;
+
+              broadcastToRoom(ws,"shapes:add",roomId,shapes);
+
+              if(!roomId.startsWith('guest')){
+                await prismaClient.chat.createMany({
+                  data: shapes.map((s) => ({
+                    shapeId: s.id,
+                    roomId: Number(roomId),
+                    message: JSON.stringify(s),
+                    userId: getClient(ws)?.userId
+                  })),
+                  skipDuplicates: true
+                })
+              }
+            }
+            break;
+
+            case "group-delete":{
+              const shapesIds = action.shapes.map(s => s.id);
+
+              broadcastToRoom(ws,"shapes:delete",roomId,shapesIds);
+
+              if(!roomId.startsWith('guest')){
+                await prismaClient.chat.deleteMany({
+                  where: {
+                    shapeId : {
+                      in : shapesIds
+                    },
+                    roomId: Number(roomId)
+                  }
+                });
+              }
+            }
+            break;
+
+            case "group-update":{
+              const shapes: Shape[] = action.after;
+
+              broadcastToRoom(ws, "shapes:update", roomId, shapes);
+
+              if(!roomId.startsWith('guest')){
+                await prismaClient.$transaction(
+                  shapes.map((shape) => 
+                  prismaClient.chat.updateMany({
+                    where:{ shapeId : shape.id, roomId: Number(roomId)},
+                    data: { message: JSON.stringify(shape)}
+                  })
+                  )
+                )
+              }
+            }
+            break;
+
+            case "layer":{
                   const shapesToRestore: Shape[] = action.after;
 
                   broadcastToRoom(ws,"layer:update",roomId,shapesToRestore);
@@ -613,7 +857,6 @@ wss.on("connection", (ws, request) => {
                   );
                 }
                 break;
-
             }
           } catch (error) {
             console.log(error);

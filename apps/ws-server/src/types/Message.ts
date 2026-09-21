@@ -6,13 +6,26 @@ export type HistoryAction =
       shape: Shape;
     }
   | {
+      type: "group-add";
+      shapes: Shape[];
+    }
+  | {
       type: "delete";
       shape: Shape;
+    }
+  | {
+      type: "group-delete";
+      shapes: Shape[];
     }
   | {
       type: "update";
       before: Shape;
       after: Shape;
+    }
+  | {
+      type: "group-update";
+      before: Shape[];
+      after: Shape[];
     }
   | {
     type: "layer";
@@ -33,6 +46,14 @@ export type Message = {
     type: "shape:preview" | "shape:add" | "shape:delete" | "shape:update";
     roomId : string,
     shape : Shape
+} | {
+    type: "shapes:add" | "shapes:update";
+    roomId : string,
+    shapes : Shape[]
+} | {
+    type: "shapes:delete";
+    roomId : string,
+    shapeIds : string[]
 } | {
     type : "history:undo" | "history:redo",
     roomId : string,

@@ -761,19 +761,14 @@ export class Game {
     }
     else if(this.groupSelection){
       const before = [...this.groupSelection.shapeIds].map(id => structuredClone(this.findShape(id))!);
-      const after = [];
+      const after: Shape[] = [];
+
       for(const shapeId of this.groupSelection.shapeIds){
         const idx = this.findShapeIndex(shapeId);
-        if(idx == -1)return;
+        if(idx == -1)continue;
         //@ts-ignore
         this.existingShapes[idx] = {...this.existingShapes[idx],...updates};
         after.push(structuredClone(this.existingShapes[idx]));
-
-        this.socket.send(JSON.stringify({
-            type: "shape:update",
-            roomId: this.roomId,
-            shape: this.existingShapes[idx]
-        }));
       }
 
       this.undoStack.push({
@@ -783,6 +778,12 @@ export class Game {
       });
       this.redoStack = [];
       this.needsRender = true;
+
+      this.socket.send(JSON.stringify({
+        type: "shapes:update",
+        roomId: this.roomId,
+        shapes: after
+      }));
     }
   }
 
@@ -889,12 +890,28 @@ export class Game {
           this.previewshapes.delete(received.userId);
           this.addShape(received.shape);
           break;
+        case "shapes:add":
+          this.previewshapes.delete(received.userId);
+          for(const shape of received.shapes){
+            this.addShape(shape);
+          }
+        break;
         case "shape:update":
           this.updateShape(received.shape.id, received.shape);
+          break;
+        case "shapes:update":
+          for(const shape of received.shapes){
+            this.updateShape(shape.id,shape);
+          }
           break;
         case "shape:delete":
           this.deleteShape(received.shape.id);
           break;
+        case "shapes:delete":
+          for(const id of received.shapeIds){
+            this.deleteShape(id);
+          }
+        break;
         case "layer:update":
           this.existingShapes = received.shapes;
           this.sortByZIndex();
@@ -1032,15 +1049,12 @@ export class Game {
   }
 
   bringToFront(){
-    console.log('here i am');
     const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
     if(idx == -1)return;
-    console.log(1037,this.existingShapes);
     const before = structuredClone(this.existingShapes);
     const shape = this.existingShapes.splice(idx,1)[0];
     this.existingShapes.push(shape);
     this.reassignZIndex();
-    console.log(1042,this.existingShapes);
     this.afterLayerOperation(before);  
   }
 
@@ -1102,6 +1116,10 @@ export class Game {
       this.sortByZIndex();
     }
 
+    if(this.groupSelection){
+      this.groupSelection.bounds = this.getGroupBounds(this.groupSelection.shapeIds);
+    }
+
     this.needsRender = true;
 
     if (this.socket.readyState == WebSocket.OPEN) {
@@ -1143,6 +1161,10 @@ export class Game {
     } else if(lastAction.type === "layer"){
       this.existingShapes = structuredClone(lastAction.after);
       this.sortByZIndex();
+    }
+    
+    if(this.groupSelection){
+      this.groupSelection.bounds = this.getGroupBounds(this.groupSelection.shapeIds);
     }
 
     this.needsRender = true;
@@ -1251,13 +1273,6 @@ export class Game {
         copy.zIndex = nextZ++;
 
         this.moveSelectedShape(copy,30,30);
-        if(this.socket.readyState == WebSocket.OPEN){
-          this.socket.send(JSON.stringify({
-            type: "shape:add",
-            roomId: this.roomId,
-            shape: copy
-          }))
-        }
         this.addShape(copy);
 
         newShapes.push(copy);
@@ -1268,6 +1283,14 @@ export class Game {
         shapes: structuredClone(newShapes)
       });
       this.redoStack = [];
+
+      if(this.socket.readyState == WebSocket.OPEN && newShapes.length){
+          this.socket.send(JSON.stringify({
+            type: "shapes:add",
+            roomId: this.roomId,
+            shapes: newShapes
+          }))
+      }
 
       this.groupSelection = null;
     }
@@ -1306,22 +1329,11 @@ export class Game {
       this.shapeSelection(null);
     }
 
-
     if(this.groupSelection){
       const deletedShapes = [...this.groupSelection.shapeIds].map(id => this.findShape(id)).filter(shape => shape !== undefined).map(shape => structuredClone(shape));
 
       for(const shape of deletedShapes){
         this.deleteShape(shape.id);
-
-        if (this.socket.readyState == WebSocket.OPEN) {
-          this.socket.send(
-            JSON.stringify({
-              type: "shape:delete",
-              roomId: this.roomId,
-              shape: { id: shape.id },
-            }),
-          );
-        }
       }
 
       this.undoStack.push({
@@ -1329,6 +1341,16 @@ export class Game {
         shapes: deletedShapes
       });
       this.redoStack = [];
+
+      if (this.socket.readyState == WebSocket.OPEN && deletedShapes.length) {
+          this.socket.send(
+            JSON.stringify({
+              type: "shapes:delete",
+              roomId: this.roomId,
+              shapeIds: deletedShapes.map(s => s.id),
+            }),
+          );
+      }
 
       this.groupSelection = null;
       this.groupSelected();
@@ -1676,14 +1698,12 @@ export class Game {
 
       this.redoStack = [];
 
-      if(this.socket.readyState == WebSocket.OPEN){
-        for(const shape of afterShapes){
-          this.socket.send(JSON.stringify({
-            type: "shape:update",
-            roomId: this.roomId,
-            shape
-          }));
-        }
+      if(this.socket.readyState == WebSocket.OPEN && afterShapes.length){
+        this.socket.send(JSON.stringify({
+          type: "shapes:update",
+          roomId: this.roomId,
+          shapes: afterShapes
+        }));
       }
 
       this.initialGroupShapes = null;
