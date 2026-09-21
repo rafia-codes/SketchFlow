@@ -32,6 +32,7 @@ model Chat {
   roomId    Int
   message   String
   userId    String
+  zIndex    Int       @default(0)
   room      Room      @relation(fields: [roomId], references: [id])
   user      User      @relation(fields: [userId], references: [id])
 

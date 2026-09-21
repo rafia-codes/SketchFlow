@@ -137,42 +137,42 @@ export function Canvas({
     game?.updateSelectedShape({
       strokeColor: strokeColor
     })
-  },[strokeColor]);
+  },[game,strokeColor]);
 
   useEffect(()=>{
     game?.setStrokeWidth(strokeWidth);
     game?.updateSelectedShape({
       strokeWidth: strokeWidth
     })
-  },[strokeWidth]);
+  },[game,strokeWidth]);
 
   useEffect(()=>{
     game?.setStrokeStyle(strokeStyle);
     game?.updateSelectedShape({
       strokeStyle: strokeStyle
     })
-  },[strokeStyle]);
+  },[game,strokeStyle]);
 
   useEffect(()=>{
     game?.setFillColor(fillColor);
     game?.updateSelectedShape({
       fillColor: fillColor
     })
-  },[fillColor]);
+  },[game,fillColor]);
 
   useEffect(()=>{
     game?.setFillStyle(fillStyle);
     game?.updateSelectedShape({
       fillStyle: fillStyle
     })
-  },[fillStyle]);
+  },[game,fillStyle]);
 
   useEffect(()=>{
     game?.setOpacity(opacity);
     game?.updateSelectedShape({
       opacity: opacity
     })
-  },[opacity]);
+  },[game,opacity]);
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
@@ -391,7 +391,7 @@ export function Canvas({
               </button>
 
               <button
-                onClick={() => game?.bringToFront()}
+                onClick={() =>(console.log('clicked bring to front'), game?.bringToFront())}
                 className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
                 title="Bring To Front"
               >

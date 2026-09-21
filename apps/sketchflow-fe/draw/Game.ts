@@ -192,6 +192,7 @@ export class Game {
       fillStyle: this.fillStyle,
 
       opacity: this.opacity,
+      zIndex: this.getNextZIndex()
     };
   }
 
@@ -511,6 +512,8 @@ export class Game {
 
     if (this.showGrid) this.drawGrid();
 
+    this.sortByZIndex();
+
     this.existingShapes?.forEach((shape) => this.drawShape(shape));
 
     if (this.groupSelection) {
@@ -783,7 +786,6 @@ export class Game {
     }
   }
 
-
   private getLocalPoint(shape: Shape, x: number, y: number){
     if(!shape.rotation)
       return {x,y};
@@ -806,8 +808,9 @@ export class Game {
   }
 
   private addShape(shape: Shape) {
-    if(this.existingShapes.find(ashape => shape == ashape))return;
+    if(this.existingShapes.find(s => s.id == shape.id))return;
     this.existingShapes.push(shape);
+    this.sortByZIndex();
     this.needsRender = true;
   }
 
@@ -845,6 +848,7 @@ export class Game {
       switch (received.type) {
         case "room_snapshot":
           this.existingShapes = received.shapes;
+          this.sortByZIndex();
           this.needsRender = true;
           break;
         case "user:joined":
@@ -893,6 +897,8 @@ export class Game {
           break;
         case "layer:update":
           this.existingShapes = received.shapes;
+          this.sortByZIndex();
+          this.needsRender = true;
           break;
       }
     };
@@ -900,8 +906,8 @@ export class Game {
 
   initMouseHandlers() {
     this.canvas.addEventListener("mousedown", this.mouseDownHandler);
-    this.canvas.addEventListener("mouseup", this.mouseUpHandler);
-    this.canvas.addEventListener("mousemove", this.mouseMoveHandler);
+    window.addEventListener("mouseup", this.mouseUpHandler);
+    window.addEventListener("mousemove", this.mouseMoveHandler);
   }
 
   initKeyboardhandlers() {
@@ -953,7 +959,7 @@ export class Game {
         this.setSelectedTool("rect");
         break;
 
-      case "o":
+      case "e":
         this.setSelectedTool("ellipse");
         break;
 
@@ -987,9 +993,22 @@ export class Game {
     if (this.animationFrameId !== null)
       cancelAnimationFrame(this.animationFrameId);
     this.canvas.removeEventListener("mousedown", this.mouseDownHandler);
-    this.canvas.removeEventListener("mouseup", this.mouseUpHandler);
-    this.canvas.removeEventListener("mousemove", this.mouseMoveHandler);
+    window.removeEventListener("mouseup", this.mouseUpHandler);
+    window.removeEventListener("mousemove", this.mouseMoveHandler);
     window.removeEventListener("keydown", this.keyDownHandler);
+  }
+
+  private getNextZIndex():number{
+    if(this.existingShapes.length == 0)return 0;
+    return Math.max(...this.existingShapes.map(s => s.zIndex)) + 1;
+  }
+
+  private reassignZIndex(){
+    this.existingShapes.forEach((shape,idx)=>shape.zIndex = idx);
+  }
+
+  private sortByZIndex(){
+    this.existingShapes.sort((a:Shape,b:Shape)=> a.zIndex - b.zIndex);
   }
 
   bringForward(){
@@ -998,6 +1017,7 @@ export class Game {
       return;
     const before = structuredClone(this.existingShapes);
     [this.existingShapes[idx],this.existingShapes[idx+1]] = [this.existingShapes[idx+1],this.existingShapes[idx]];
+    this.reassignZIndex();
     this.afterLayerOperation(before);  
   }
 
@@ -1007,15 +1027,20 @@ export class Game {
       return;
     const before = structuredClone(this.existingShapes);
     [this.existingShapes[idx],this.existingShapes[idx-1]] = [this.existingShapes[idx-1],this.existingShapes[idx]];
+    this.reassignZIndex();
     this.afterLayerOperation(before);  
   }
 
   bringToFront(){
+    console.log('here i am');
     const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
     if(idx == -1)return;
+    console.log(1037,this.existingShapes);
     const before = structuredClone(this.existingShapes);
     const shape = this.existingShapes.splice(idx,1)[0];
     this.existingShapes.push(shape);
+    this.reassignZIndex();
+    console.log(1042,this.existingShapes);
     this.afterLayerOperation(before);  
   }
 
@@ -1025,6 +1050,7 @@ export class Game {
     const before = structuredClone(this.existingShapes);
     const shape = this.existingShapes.splice(idx,1)[0];
     this.existingShapes.unshift(shape);  
+    this.reassignZIndex();
     this.afterLayerOperation(before);  
   }
 
@@ -1037,11 +1063,14 @@ export class Game {
     this.redoStack = [];
     this.needsRender = true;
     if(this.socket.readyState == WebSocket.OPEN){
+      console.log("sending layer:update", this.existingShapes.map(s => ({id: s.id, zIndex: s.zIndex})));
       this.socket.send(JSON.stringify({
         type: "layer:update",
         roomId: this.roomId,
         shapes: this.existingShapes
       }))
+    }else{
+      console.log('socket closed h');
     }
   }
 
@@ -1070,6 +1099,7 @@ export class Game {
       }
     } else if(lastAction.type === "layer"){
       this.existingShapes = structuredClone(lastAction.before);
+      this.sortByZIndex();
     }
 
     this.needsRender = true;
@@ -1112,6 +1142,7 @@ export class Game {
       }
     } else if(lastAction.type === "layer"){
       this.existingShapes = structuredClone(lastAction.after);
+      this.sortByZIndex();
     }
 
     this.needsRender = true;
@@ -1187,6 +1218,7 @@ export class Game {
     if (this.clipboardShape){
         const newShape = structuredClone(this.clipboardShape);
         newShape.id = crypto.randomUUID();
+        newShape.zIndex = this.getNextZIndex();
 
         this.moveSelectedShape(newShape, 30, 30);
         if (this.socket.readyState == WebSocket.OPEN) {
@@ -1211,10 +1243,12 @@ export class Game {
 
     if(this.clipboardShapes){
       const newShapes: Shape[] = [];
+      let nextZ = this.getNextZIndex();
 
       for(const shape of this.clipboardShapes){
         const copy = structuredClone(shape);
         copy.id = crypto.randomUUID();
+        copy.zIndex = nextZ++;
 
         this.moveSelectedShape(copy,30,30);
         if(this.socket.readyState == WebSocket.OPEN){
@@ -1344,7 +1378,7 @@ export class Game {
         box = {
           x: Math.min(...xs),
           y: Math.min(...ys),
-          width: Math.max(...xs) - Math.min(...ys),
+          width: Math.max(...xs) - Math.min(...xs),
           height: Math.max(...ys) - Math.min(...ys),
         };
 
@@ -1687,7 +1721,7 @@ export class Game {
 
     if (!this.currentShape) {
       this.interaction = "idle";
-      this.selectedShapeId = null;
+      //this.selectedShapeId = null;
       return;
     }
 
@@ -1841,7 +1875,7 @@ export class Game {
             break;
 
           case "tr":
-            shape.y = local.x;
+            shape.y = local.y;
             shape.height = bottom - local.y;
             shape.width = local.x - shape.x;
             break;

@@ -13,7 +13,12 @@ export type HistoryAction =
       type: "update";
       before: Shape;
       after: Shape;
-    };
+    }
+  | {
+    type: "layer";
+    before: Shape[];
+    after: Shape[]
+  };
 
 export type Message = {
     type: "auth",

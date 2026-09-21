@@ -57,6 +57,7 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
         }))
       }
     })
+    return;
   }
 
   if(type == "user:joined" || type == "user:left"){
@@ -159,10 +160,16 @@ wss.on("connection", (ws, request) => {
             if (!rooms.has(parsedData.roomId))
               rooms.set(parsedData.roomId, new Map());
 
+            if (rooms.get(parsedData.roomId)?.has(ws)) {
+              return;
+            }
+
             rooms.get(parsedData.roomId)?.set(ws, client);
             client.rooms.add(parsedData.roomId);
 
-            const chats = await prismaClient.chat.findMany({
+            let chats = [];
+
+            chats = await prismaClient.chat.findMany({
               where: {
                 roomId: Number(parsedData.roomId),
               },
@@ -201,7 +208,7 @@ wss.on("connection", (ws, request) => {
 
         case "leave_room":
           try {
-            if (clients.has(ws)) clients.delete(ws);
+            if (!clients.has(ws)) return;
             if (
               rooms.has(parsedData.roomId) &&
               rooms.get(parsedData.roomId)?.has(ws)
@@ -299,15 +306,15 @@ wss.on("connection", (ws, request) => {
               },
             });
 
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shape:delete", roomId, { id : parsedData.shape.id } as Shape);
+            //console.timeEnd("broadcast");
+
             if (!existing) return;
 
             if (existing.roomId !== Number(roomId)) {
               return;
             }
-
-            //console.time("broadcast");
-            broadcastToRoom(ws, "shape:delete", roomId, { id : parsedData.shape.id } as Shape);
-            //console.timeEnd("broadcast");
 
             //console.time("db:delete");
             if (!roomId.startsWith("guest")) {
@@ -342,15 +349,15 @@ wss.on("connection", (ws, request) => {
               },
             });
 
+            //console.time("broadcast");
+            broadcastToRoom(ws, "shape:update", roomId, updatedShape);
+            //console.timeEnd("broadcast");
+
             if (!existing) return;
 
             if (existing.roomId !== Number(roomId)) {
               return;
             }
-
-            //console.time("broadcast");
-            broadcastToRoom(ws, "shape:update", roomId, updatedShape);
-            //console.timeEnd("broadcast");
 
             //console.time("db:update");
             if (!roomId.startsWith("guest")) {
@@ -471,6 +478,25 @@ wss.on("connection", (ws, request) => {
                 });
 
                 break;
+
+                case "layer":{
+                  const shapesToRestore: Shape[] = action.before;
+
+                  broadcastToRoom(ws,"layer:update",roomId,shapesToRestore);
+
+                  if(roomId.startsWith('guest'))return;
+
+                  await Promise.all(
+                    shapesToRestore.map((shape) => 
+                    prismaClient.chat.updateMany({
+                      where:{ shapeId: shape.id, roomId: Number(roomId)},
+                      data: {
+                        message: JSON.stringify(shape)
+                      }
+                    }))
+                  );
+                }
+                break;
             }
 
           } catch (error) {
@@ -569,6 +595,25 @@ wss.on("connection", (ws, request) => {
                 });
               break;
 
+              case "layer":{
+                  const shapesToRestore: Shape[] = action.after;
+
+                  broadcastToRoom(ws,"layer:update",roomId,shapesToRestore);
+
+                  if(roomId.startsWith('guest'))return;
+
+                  await Promise.all(
+                    shapesToRestore.map((shape) => 
+                    prismaClient.chat.updateMany({
+                      where:{ shapeId: shape.id, roomId: Number(roomId)},
+                      data: {
+                        message: JSON.stringify(shape)
+                      }
+                    }))
+                  );
+                }
+                break;
+
             }
           } catch (error) {
             console.log(error);
@@ -584,7 +629,21 @@ wss.on("connection", (ws, request) => {
             if (!rooms.get(parsedData.roomId)?.has(ws)) return;
 
             const roomId = parsedData.roomId;
-            broadcastToRoom(ws,"layer:update",roomId,parsedData.shapes);
+            const shapes = parsedData.shapes;
+
+            broadcastToRoom(ws,"layer:update",roomId,shapes);
+
+            if(!roomId.startsWith('guest')){
+              await Promise.all(
+                shapes.map((shape) => 
+                prismaClient.chat.updateMany({
+                  where:{shapeId: shape.id, roomId: Number(roomId)},
+                  data: {
+                    message: JSON.stringify(shape)
+                  }
+                }))
+              );
+            }
             break;
           }catch{
             console.log('Error in layer update');
@@ -607,12 +666,10 @@ wss.on("connection", (ws, request) => {
           rooms.get(roomId)?.forEach((user,userws)=>{
             if(userws.readyState == WebSocket.OPEN){
               userws.send(JSON.stringify({
-                type: "cursor:remove",
-                userId: getClient(ws)?.userId,
-              }));
-              userws.send(JSON.stringify({
                 type: "user:left",
-                name : getClient(ws)?.name
+                name : getClient(ws)?.name,
+                userId: getClient(ws)?.userId,
+                color: getClient(ws)?.color
               }))
             }
           })

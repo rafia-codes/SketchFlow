@@ -16,6 +16,8 @@ export type ShapeStyle = {
   opacity: number;//done
 
   rotation?: number;//done
+
+  zIndex: number
 }
 
 export type HistoryAction = {
