@@ -1,5 +1,5 @@
 import { Tool } from "../components/Canvas";
-import {Shape,ShapeStyle,HistoryAction,Cursor,Toast,SelectionBound,} from "./types";
+import {Shape,ShapeStyle,HistoryAction,Cursor,Toast,SelectionBound, RemoteSelection, User,} from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -23,6 +23,7 @@ export class Game {
   private isLocked = false;
   private previewshapes: Map<string, Shape>;
   private cursors: Map<string, Cursor>;
+  private remoteSelections: Map<string,RemoteSelection>;
   private currentShape: Shape | null;
   private needsRender: boolean;
   private animationFrameId: number | null;
@@ -32,7 +33,7 @@ export class Game {
   private readonly PREVIEW_INTERVAL = 33;
   private readonly CURSOR_INTERVAL = 16;
   private selectedShapeId: string | null;
-  private interaction:"idle"| "drawing"| "moving"| "resizing"| "marquee"| "idle"| "groupMove" | "rotating" = "idle";
+  private interaction:"idle"| "drawing"| "moving"| "resizing"| "marquee" | "groupMove" | "rotating" = "idle";
   private dragStart = {x: 0,y: 0};
   private resizeHandle: "tl" | "tr" | "bl" | "br" | null = null;
   private SELECTION_PADDING = 5;
@@ -55,6 +56,8 @@ export class Game {
   private clipboardShapes: Shape[] | null = null;
   private onlineUsers?: (usersOnline: number) => void;
   private toastListener?: (toast: Toast) => void;
+  private users: User[] = [];
+  private usersListener?: (user: User[]) => void;
   private showGrid: boolean = true;
   private rotationStartAngle = 0;
   private initialRotation = 0;
@@ -89,9 +92,11 @@ export class Game {
     this.initHandlers();
     this.initMouseHandlers();
     this.initKeyboardhandlers();
+    this.users.push({ id: 1, name: "You", color: "#FB8C00", you: true });
     this.isLocked = false;
     this.previewshapes = new Map<string, Shape>();
     this.cursors = new Map<string, Cursor>();
+    this.remoteSelections = new Map<string,RemoteSelection>();
     this.currentShape = null;
     this.needsRender = true;
     this.animationFrameId = 0;
@@ -126,6 +131,11 @@ export class Game {
 
   setOnlineUsersListener(callback: (online: number) => void) {
     this.onlineUsers = callback;
+  }
+
+  setUsersListener(callback: (user: User[]) => void){
+    this.usersListener = callback;
+    this.usersListener([...this.users]);
   }
 
   setToastListener(callback: (toast: Toast) => void) {
@@ -202,6 +212,7 @@ export class Game {
     this.currentShape = null;
     this.selectionListener?.(id !== null);
     this.needsRender = true;
+    this.broadcastSelection(false);
   }
 
   private groupSelected(){
@@ -209,6 +220,7 @@ export class Game {
     this.currentShape = null;
     this.selectionListener?.(this.groupSelection !== null);
     this.needsRender = true;
+    this.broadcastSelection(false);
   }
 
   private getLeftTopWidthHeight(shape: Shape):{left:number,top:number,width:number,height:number}{
@@ -304,10 +316,10 @@ export class Game {
     this.ctx.restore();
   }
 
-  private drawSelectionBox(shape: Shape) {
+  private drawSelectionBox(shape: Shape, color: string = "#3b82f6") {
     this.ctx.save();
 
-    this.ctx.strokeStyle = "#3b82f6";
+    this.ctx.strokeStyle = color;
     this.ctx.lineWidth = this.strokeWidth / this.scale;
 
     const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
@@ -322,8 +334,10 @@ export class Game {
     }
     this.drawBox(left,top,width,height);
     const handles = this.getHandles(left,top,width,height);
-    this.drawRotationHandle(handles);
-    this.drawHandles(handles);
+    if(color == "#3b82f6"){
+      this.drawRotationHandle(handles);
+      this.drawHandles(handles);
+    }
 
     this.ctx.restore();
   }
@@ -531,8 +545,26 @@ export class Game {
 
     this.drawSelectionMarquee();
 
-    for (const cursor of this.cursors.values()) {
-      this.drawCursor(cursor);
+    for (const [userId,cursor] of this.cursors.entries()) {
+      const remoteSelections = this.remoteSelections.get(userId);
+
+      this.drawCursor(cursor,remoteSelections?.editing);
+
+      if(!remoteSelections)continue;
+
+      const selections = remoteSelections.shapeIds;
+
+      if(selections.length == 1){
+        const shapeSelected = this.findShape(selections[0]);
+
+        if(shapeSelected){
+          this.drawSelectionBox(shapeSelected,cursor.color);
+        }
+      }
+      else if(selections.length > 1){
+          const bounds = this.getGroupBounds(new Set(selections));
+          this.drawGroupSelection(bounds,cursor.color);
+      }
     }
   }
 
@@ -545,13 +577,28 @@ export class Game {
     };
   }
 
-  private drawGroupSelection() {
-    if (!this.groupSelection) return;
+  private broadcastSelection(editing: boolean = false){
+    let shapeIds : string[] = [];
 
-    const b = this.groupSelection.bounds;
+    if(this.selectedShapeId) shapeIds = [this.selectedShapeId];
+    else if(this.groupSelection) shapeIds = [...this.groupSelection.shapeIds];
+
+    if(this.socket.readyState == WebSocket.OPEN){
+      this.socket.send(JSON.stringify({
+        type: "selection:update",
+        roomId: this.roomId,
+        shapeIds,
+        editing
+      }));
+    }
+  }
+
+  private drawGroupSelection(bounds?: SelectionBound, color : string = "#3b82f6") {
+    const b = bounds ?? this.groupSelection?.bounds;
+    if(!b)return;
 
     this.ctx.save();
-    this.ctx.strokeStyle = "#3b82f6";
+    this.ctx.strokeStyle = color;
     this.ctx.lineWidth = this.strokeWidth / this.scale;
     this.ctx.strokeRect(b.x - this.SELECTION_PADDING, b.y - this.SELECTION_PADDING, b.width + 2 * this.SELECTION_PADDING, b.height + 2 * this.SELECTION_PADDING);
 
@@ -592,7 +639,7 @@ export class Game {
     }
   }
 
-  private drawCursor(cursor: Cursor) {
+  private drawCursor(cursor: Cursor, editing : boolean = false) {
     this.ctx.save();
 
     this.ctx.translate(cursor.x, cursor.y);
@@ -614,7 +661,7 @@ export class Game {
 
     this.ctx.font = "12px sans-serif";
     this.ctx.fillStyle = cursor.color ?? "white";
-    this.ctx.fillText(cursor.name ?? "Guest", 24, 24);
+    this.ctx.fillText((cursor.name ?? "Guest" )+(editing ? " is editing..." : ""), 24, 24);
 
     this.ctx.restore();
   }
@@ -859,7 +906,11 @@ export class Game {
             name: received.name,
             color: received.color,
           });
-          this.onlineUsers?.(this.cursors.size + 1);
+          if(!this.users.find(u => u.id === received.userId)){
+            this.users.push({id: received.userId,name:received.name,color:received.color,you:false});
+          }
+          this.usersListener?.([...this.users]);
+          this.onlineUsers?.(this.users.length);
           this.toastListener?.({
             message: `${received.name} joined`,
             color: received.color,
@@ -868,7 +919,10 @@ export class Game {
           break;
         case "user:left":
           this.cursors.delete(received.userId);
-          this.onlineUsers?.(this.cursors.size + 1);
+          this.remoteSelections.delete(received.userId);
+          this.users = this.users.filter(u => u.id !== received.userId);
+          this.usersListener?.([...this.users]);
+          this.onlineUsers?.(this.users.length);
           this.toastListener?.({
             message: `${received.name} left`,
             color: received.color,
@@ -879,6 +933,17 @@ export class Game {
           const existingCursor = this.cursors.get(received.userId);
           if (existingCursor) {
             ((existingCursor.x = received.x), (existingCursor.y = received.y));
+          }
+          this.needsRender = true;
+          break;
+        case "selection:update":
+          if(received.shapeIds && received.shapeIds.length){
+            this.remoteSelections.set(received.userId,{
+              shapeIds: received.shapeIds,
+              editing: received.editing
+            });
+          }else{
+            this.remoteSelections.delete(received.userId);
           }
           this.needsRender = true;
           break;
@@ -944,6 +1009,12 @@ export class Game {
     if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() == "z") {
       e.preventDefault();
       this.redo();
+      return;
+    }
+
+    if(e.key == "Escape"){
+      e.preventDefault();
+      this.shapeSelection(null);
       return;
     }
 
@@ -1416,6 +1487,7 @@ export class Game {
   }
 
   private getShapeBounds(shape: Shape) {
+
     switch (shape.type) {
       case "rect":
         return {
@@ -1490,7 +1562,6 @@ export class Game {
   }
 
   mouseDownHandler = (e: MouseEvent) => {
-    console.log('mouse down target', e.target);
     if (this.selectedTool === "hand") {
       this.isPanning = true;
       this.canvas.style.cursor = "grabbing";
@@ -1508,6 +1579,7 @@ export class Game {
 
         this.interaction = "groupMove";
         this.dragStart = { x, y };
+        this.broadcastSelection(true);
         return;
       }
     }
@@ -1530,6 +1602,7 @@ export class Game {
       if (resizeShape) {
         this.interaction = "resizing";
         this.resizeHandle = resizeShape;
+        this.broadcastSelection(true);
         return;
       }
 
@@ -1544,6 +1617,7 @@ export class Game {
         
         this.initialRotation = shape.rotation ?? 0;
         this.rotationStartAngle = Math.atan2(y-cy,x-cx);
+        this.broadcastSelection(true);
         return;
       }
 
@@ -1563,6 +1637,8 @@ export class Game {
 
       this.interaction = "moving";
       this.dragStart = { x, y };
+
+      this.broadcastSelection(true);
 
       return;
     }
@@ -1646,7 +1722,10 @@ export class Game {
         break;
     }
 
-    if (this.currentShape) this.previewshapes.set("self", this.currentShape);
+    if (this.currentShape){
+      this.previewshapes.set("self", this.currentShape);
+      this.broadcastSelection(true);
+    }
 
     this.ctx.beginPath();
     this.ctx.moveTo(x, y);
@@ -1658,6 +1737,7 @@ export class Game {
       this.canvas.style.cursor = "grab";
       return;
     }
+    this.broadcastSelection();
 
     if (this.interaction === "marquee") {
       const rect = this.normalizeRect(this.selectionRect!);
@@ -1678,6 +1758,7 @@ export class Game {
         this.groupSelected();
       } else {
         this.groupSelection = null;
+        this.groupSelected();
       }
 
       this.selectionRect = null;
@@ -1736,6 +1817,7 @@ export class Game {
       this.interaction = "idle";
       this.resizeHandle = null;
       this.canvas.style.cursor = "default";
+      this.broadcastSelection(true);
       return;
     }
 

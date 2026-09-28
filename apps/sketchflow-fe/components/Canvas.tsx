@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Hand,
   Circle,
@@ -22,11 +22,11 @@ import {
   MoveDown,
   BringToFront,
   SendToBack,
-  
+  Users,X
 } from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
-import { Toast } from "@/draw/types";
+import { Toast,User } from "@/draw/types";
 
 export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
 
@@ -66,6 +66,9 @@ export function Canvas({
   const [onlineUsers, setOnlineUsers] = useState(1);
   const [toast, setToast] = useState<Toast | null>(null);
   const [snapToGrid, setSnapToGrid] = useState<boolean>(false);
+  const [showUsers, setShowUsers] = useState(false);
+
+  const [users, setUsers] = useState<User[]>([]);
 
   const primaryTools = [
     "rect",
@@ -80,7 +83,8 @@ export function Canvas({
     game?.setSelectedTool(selectedTool);
     game?.setSelectionListener(setShapeSelected);
     game?.setToolListener(setSelectedTool);
-    game?.setOnlineUsersListener(setOnlineUsers);    
+    game?.setOnlineUsersListener(setOnlineUsers); 
+    game?.setUsersListener(setUsers);   
   }, [game,selectedTool]);
 
   useEffect(()=>{
@@ -410,10 +414,24 @@ export function Canvas({
         </aside>
 
       <div className="absolute top-6 right-4 flex gap-3">
-        <div className="flex items-center gap-2 text-gray-300">
+
+        {/* <div className="flex items-center gap-2 text-gray-300">
           <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
           <span className="text-sm font-medium">{onlineUsers} Online</span>
-        </div>
+        </div> */}
+
+        <button
+          onClick={() => setShowUsers((s) => !s)}
+          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border-white/35 text-sm font-medium bg-card text-foreground border border-border shadow-sm hover:border-primary/60 hover:-translate-y-0.5 transition-all"
+        >
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
+            <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+          </span>
+          <Users className="w-4 h-4 text-muted-foreground text-white" />
+          <span className="tabular-nums text-white">{onlineUsers} online</span>
+        </button>
+
         <button
           onClick={onShare}
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium 
@@ -438,6 +456,10 @@ export function Canvas({
           Leave
         </button>
       </div>
+
+      {showUsers && (
+        <UsersPanel users={users} onClose={() => setShowUsers(false)} />
+      )}
 
       {toast && (
         <div className="toast">
@@ -805,5 +827,69 @@ function SegRow({
         ))}
       </div>
     </div>
+  );
+}
+
+function UsersPanel({
+  users,
+  onClose,
+}: {
+  users: { id: number; name: string; color: string; you?: boolean }[];
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div
+        className="absolute inset-0 z-20 border-white"
+        onClick={onClose}
+        aria-hidden
+      />
+      <aside className="absolute top-16 right-5 z-30 w-64 rounded-2xl border border-border bg-card/95 backdrop-blur p-3 shadow-2xl shadow-black/60 ring-1 ring-white/5">
+        <div className="flex items-center justify-between px-1 pb-2 mb-2 border-white/35 border-b border-border/60">
+          <div className="flex items-center gap-2 border-white/35">
+            <Users className="w-4 h-4 text-muted-foreground text-white" />
+            <span className="text-sm font-medium text-foreground text-white">
+              In this room
+            </span>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="w-7 h-7 text-white flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <ul className="space-y-1 max-h-[60vh] overflow-y-auto text-white">
+          {users.map((u) => (
+            <li
+              key={u.id}
+              className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors"
+            >
+              <span
+                className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
+                style={{ backgroundColor: u.color }}
+              >
+                {u.name.charAt(0).toUpperCase()}
+                <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-card" />
+              </span>
+              <span className="flex-1 truncate text-sm text-foreground">
+                {u.name}
+                {u.you && (
+                  <span className="ml-1.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    you
+                  </span>
+                )}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-2 px-2 text-[11px] text-muted-foreground text-white">
+          {users.length} drawing together
+        </p>
+      </aside>
+    </>
   );
 }

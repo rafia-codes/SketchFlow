@@ -27,7 +27,7 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[] | string[]) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[] | string[] | {shapeIds: string[], editing: boolean}) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
@@ -82,6 +82,22 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
           type: type,
           roomId: roomId,
           shapeIds: shapeIds
+        }))
+      }
+    })
+    return;
+  }
+
+  if(type == "selection:update"){
+    const payload = data as unknown as { shapeIds: string[]; editing: boolean};
+
+    rooms.get(roomId)?.forEach((user,userws)=>{
+      if(ws !== userws && userws.readyState == WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type: type,
+          userId: client?.userId,
+          shapeIds: payload.shapeIds,
+          editing: payload.editing
         }))
       }
     })
@@ -248,7 +264,7 @@ wss.on("connection", (ws, request) => {
           }
           break;
 
-        case "cursor:update":
+        case "cursor:update":{
           if (!client.authenticated) return;
 
           if (!rooms.has(parsedData.roomId)) return;
@@ -260,7 +276,23 @@ wss.on("connection", (ws, request) => {
           const y = parsedData.y;
 
           broadcastToRoom(ws,"cursor:update",roomId,{ x: x, y: y});
+        }
+        break;
 
+        case "selection:update":{
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+
+          broadcastToRoom(ws,"selection:update",roomId,{
+            shapeIds: parsedData.shapeIds as string[],
+            editing: parsedData.editing
+          })
+        }
         break;
 
         case "shape:preview":

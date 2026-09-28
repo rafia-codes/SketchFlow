@@ -67,6 +67,11 @@ export type Message = {
     type : "layer:update",
     roomId : string,
     shapes : Shape[]
+} | {
+    type: "selection:update",
+    roomId : string,
+    shapeIds : string[],
+    editing: boolean   
 }
 
 export type CursorPreview = {

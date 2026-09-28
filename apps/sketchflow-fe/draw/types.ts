@@ -121,3 +121,14 @@ export type SelectionBound = {
   height: number;
 }
 
+export type RemoteSelection = {
+    shapeIds: string[],
+    editing: boolean
+}
+
+export type User = {
+  id: number,
+  name: string, 
+  color: string, 
+  you: boolean
+}
