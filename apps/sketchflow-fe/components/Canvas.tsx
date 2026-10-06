@@ -1,34 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Hand,
-  Circle,
-  Diamond,
-  Pencil,
-  Minus,
-  RectangleHorizontalIcon,
-  ZoomIn,
-  ZoomOut,
-  Undo2,
-  Redo2,
-  LockKeyholeOpen,
-  LockKeyhole,
-  ArrowRight,
-  MousePointer,
-  CopyPlus,
-  Trash2,
-  Grid3X3,
-  Grid2X2Check,
-  MoveUp,
-  MoveDown,
-  BringToFront,
-  SendToBack,
-  Users,X
-} from "lucide-react";
+import { Hand,Circle,Diamond,Pencil,Minus,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic} from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 import { Toast,User } from "@/draw/types";
+import MessageModal from "./MessageModal";
 
-export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select"; //panning
+export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select" | "text"; //panning
 
 const STROKE_COLORS = ["#1f2937","#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6",];
 const BG_COLORS = ["#fee2e2","#fef3c7","#dcfce7","#dbeafe","#ede9fe","#fce7f3",];
@@ -52,9 +29,7 @@ export function Canvas({
   const [isLocked, setIsLocked] = useState(false);
 
   const [fillColor, setFillColor] = useState("transparent");
-  const [fillStyle, setFillStyle] = useState<
-    "solid" | "cross-hatch" | "hachure"
-  >("solid");
+  const [fillStyle, setFillStyle] = useState<"solid" | "cross-hatch" | "hachure">("solid");
 
   const [strokeColor, setStrokeColor] = useState("#ffffff");
   const [strokeStyle, setStrokeStyle] = useState<"solid" | "dashed" | "dotted">(
@@ -70,14 +45,15 @@ export function Canvas({
 
   const [users, setUsers] = useState<User[]>([]);
 
-  const primaryTools = [
-    "rect",
-    "ellipse",
-    "diamond",
-    "pencil",
-    "arrow",
-    "line",
-  ];
+  const [showResizeMsg,setShowResizeMsg] = useState(false);
+
+  const [fontSize,setFontSize] = useState(24);
+  const [fontFamily,setFontFamily] = useState<"sans"|"mono"|"serif">("sans");
+  const [fontWeight,setFontWeight] = useState<"normal"|"bold">("normal");
+  const [fontStyle,setFontStyle] = useState<"normal"|"italic">("normal");
+  const [textAlign,setTextAlign] = useState<"left"|"center"|"right">("left");
+
+  const [canShowTextProperty,setCanShowTextProperty] = useState<boolean>(false);
 
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
@@ -85,7 +61,9 @@ export function Canvas({
     game?.setToolListener(setSelectedTool);
     game?.setOnlineUsersListener(setOnlineUsers); 
     game?.setUsersListener(setUsers);   
-  }, [game,selectedTool]);
+    game?.setShowResizeMsg(setShowResizeMsg);
+    game?.setShowTextProperty(setCanShowTextProperty);
+  }, [game,selectedTool,canShowTextProperty]);
 
   useEffect(()=>{
     game?.setSnapToGrid(snapToGrid);
@@ -177,6 +155,16 @@ export function Canvas({
       opacity: opacity
     })
   },[game,opacity]);
+
+  useEffect(()=>{
+    game?.setTextStyle(
+      fontSize,
+      fontFamily,
+      fontWeight,
+      fontStyle,
+      textAlign
+    );
+  },[game,fontFamily,fontSize,fontStyle,fontWeight,textAlign]);
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
@@ -274,6 +262,31 @@ export function Canvas({
       />
 
         <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
+        {selectedTool === "text" || canShowTextProperty ? (
+            <TextProperties
+                strokeColor={strokeColor}
+                setStrokeColor={setStrokeColor}
+
+                fontSize={fontSize}
+                setFontSize={setFontSize}
+
+                fontFamily={fontFamily}
+                setFontFamily={setFontFamily}
+
+                fontWeight={fontWeight}
+                setFontWeight={setFontWeight}
+
+                fontStyle={fontStyle}
+                setFontStyle={setFontStyle}
+
+                textAlign={textAlign}
+                setTextAlign={setTextAlign}
+
+                opacity={opacity}
+                setOpacity={setOpacity}
+              />
+          ) : (
+            <>
           <SwatchRow
             label="Stroke"
             colors={STROKE_COLORS}
@@ -411,6 +424,8 @@ export function Canvas({
               </button>
             </div>
           </div>
+          </>
+          )}
         </aside>
 
       <div className="absolute top-6 right-4 flex gap-3">
@@ -472,6 +487,10 @@ export function Canvas({
 
           {toast.message}
         </div>
+      )}
+
+      {showResizeMsg && (
+        <MessageModal title="Resize Text Info 💡" onClose={()=>setShowResizeMsg(false)} message="Drag to scale your text. Hold Shift while dragging to wrap the text."></MessageModal>
       )}
     </div>
   );
@@ -585,6 +604,12 @@ function Topbar({
         title="Diamond (D)"
         onClick={() => setSelectedTool("diamond")}
         icon={<Diamond size={18} />}
+      />
+      <ToolButton
+        active={selectedTool === "text"}
+        title="Text (T)"
+        onClick={() => setSelectedTool("text")}
+        icon={<Type size={18} />}
       />
 
       <Divider />
@@ -891,5 +916,198 @@ function UsersPanel({
         </p>
       </aside>
     </>
+  );
+}
+
+function TextProperties({
+  strokeColor,
+  setStrokeColor,
+  fontSize,
+  setFontSize,
+  fontFamily,
+  setFontFamily,
+  fontWeight,
+  setFontWeight,
+  fontStyle,
+  setFontStyle,
+  textAlign,
+  setTextAlign,
+  opacity,
+  setOpacity,
+}: {
+  strokeColor: string;
+  setStrokeColor: (value: string) => void;
+
+  fontSize: number;
+  setFontSize: (value: number) => void;
+
+  fontFamily: "sans" | "mono" | "serif";
+  setFontFamily: (value: "sans" | "mono" | "serif") => void;
+
+  fontWeight: "normal" | "bold";
+  setFontWeight: (value: "normal" | "bold") => void;
+
+  fontStyle: "normal" | "italic";
+  setFontStyle: (value: "normal" | "italic") => void;
+
+  textAlign: "left" | "center" | "right";
+  setTextAlign: (value: "left" | "center" | "right") => void;
+
+  opacity: number;
+  setOpacity: (value: number) => void;
+}) {
+  return (
+    <div className="space-y-4 text-foreground">
+
+      <h2 className="text-xs font-semibold uppercase">
+        Text
+      </h2>
+
+      <SwatchRow
+        label="Color"
+        colors={STROKE_COLORS}
+        value={strokeColor}
+        onChange={setStrokeColor}
+      />
+
+      <SegRow
+        label="Font"
+        options={["sans", "serif", "mono"]}
+        value={fontFamily}
+        onChange={(v) =>
+          setFontFamily(v as "sans" | "serif" | "mono")
+        }
+      />
+
+      <div>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+          Size
+        </p>
+
+        <input
+          type="number"
+          min={8}
+          max={144}
+          value={fontSize}
+          onChange={(e) => {
+            const value = e.target.valueAsNumber;
+
+            if (Number.isFinite(value)) {
+              setFontSize(
+                Math.min(144, Math.max(8, value))
+              );
+            }
+          }}
+          className="w-full h-9 rounded-md border border-border bg-muted/40 px-2.5 text-sm"
+        />
+      </div>
+
+      <div>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+          Style
+        </p>
+
+        <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+
+          <button
+            onClick={() =>
+              setFontWeight(
+                fontWeight === "bold"
+                  ? "normal"
+                  : "bold"
+              )
+            }
+            className={`flex-1 h-9 rounded-md ${
+              fontWeight === "bold"
+                ? "bg-gray-900 ring-1 ring-amber-600"
+                : "hover:bg-muted/60"
+            }`}
+          >
+            <Bold size={16} className="mx-auto" />
+          </button>
+
+          <button
+            onClick={() =>
+              setFontStyle(
+                fontStyle === "italic"
+                  ? "normal"
+                  : "italic"
+              )
+            }
+            className={`flex-1 h-9 rounded-md ${
+              fontStyle === "italic"
+                ? "bg-gray-900 ring-1 ring-amber-600"
+                : "hover:bg-muted/60"
+            }`}
+          >
+            <Italic size={16} className="mx-auto" />
+          </button>
+
+        </div>
+      </div>
+
+      {/* Alignment */}
+      <div>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+          Align
+        </p>
+
+        <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+
+          <button
+            onClick={() => setTextAlign("left")}
+            className={`flex-1 h-9 rounded-md ${
+              textAlign === "left"
+                ? "bg-gray-900 ring-1 ring-amber-600"
+                : "hover:bg-muted/60"
+            }`}
+          >
+            <AlignLeft size={16} className="mx-auto" />
+          </button>
+
+          <button
+            onClick={() => setTextAlign("center")}
+            className={`flex-1 h-9 rounded-md ${
+              textAlign === "center"
+                ? "bg-gray-900 ring-1 ring-amber-600"
+                : "hover:bg-muted/60"
+            }`}
+          >
+            <AlignCenter size={16} className="mx-auto" />
+          </button>
+
+          <button
+            onClick={() => setTextAlign("right")}
+            className={`flex-1 h-9 rounded-md ${
+              textAlign === "right"
+                ? "bg-gray-900 ring-1 ring-amber-600"
+                : "hover:bg-muted/60"
+            }`}
+          >
+            <AlignRight size={16} className="mx-auto" />
+          </button>
+
+        </div>
+      </div>
+
+      {/* Opacity */}
+      <div>
+        <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+          Opacity
+        </p>
+
+        <input
+          type="range"
+          min={0}
+          max={100}
+          value={opacity * 100}
+          onChange={(e) =>
+            setOpacity(Number(e.target.value) / 100)
+          }
+          className="w-full"
+        />
+      </div>
+
+    </div>
   );
 }

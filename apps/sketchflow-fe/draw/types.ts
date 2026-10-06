@@ -6,18 +6,18 @@ export type Points = {
 type Color = string;
 
 export type ShapeStyle = {
-  strokeColor: Color;//done
+  strokeColor: Color;//done//use for text
   strokeWidth: number;//done
   strokeStyle: "solid" | "dashed" | "dotted";//done
 
   fillColor: Color;//done
   fillStyle: "solid" | "cross-hatch" | "hachure"; 
 
-  opacity: number;//done
+  opacity: number;//done//use for text
 
-  rotation?: number;//done
+  rotation?: number;//done//use for text
 
-  zIndex: number
+  zIndex: number//use for text
 }
 
 export type HistoryAction = {
@@ -96,7 +96,21 @@ export type BaseShape =
       sY: number;
       eX: number;
       eY: number;
-    };
+    }
+  | {
+    type: "text",
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text: string;
+    fontSize: number;
+    fontFamily: "sans" | "serif" | "mono";
+    fontWeight: "normal" | "bold";
+    fontStyle: "normal" | "italic";
+    textAlign: "left" | "center" | "right";
+    textAutoResize?: boolean;
+  };
 
 export type Shape = BaseShape & ShapeStyle & {
   id: string;
@@ -132,3 +146,5 @@ export type User = {
   color: string, 
   you: boolean
 }
+
+export type TextShape = Extract<Shape,{type:"text"}>;

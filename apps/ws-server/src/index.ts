@@ -236,6 +236,7 @@ wss.on("connection", (ws, request) => {
               if(ws !== userws && userws.readyState == WebSocket.OPEN){
                 ws.send(JSON.stringify({
                   type:"user:joined",
+                  existing: true,
                   userId: user.userId,
                   name: user.name,
                   color: user.color

@@ -1,5 +1,5 @@
 import { Tool } from "../components/Canvas";
-import {Shape,ShapeStyle,HistoryAction,Cursor,Toast,SelectionBound, RemoteSelection, User,} from "./types";
+import {Shape,ShapeStyle,HistoryAction,Cursor,Toast,SelectionBound,RemoteSelection,User, TextShape,} from "./types";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -13,6 +13,7 @@ export class Game {
   private startY = 0;
   private selectedTool: Tool = "rect";
   private isPanning = false;
+  private hasMoved: boolean = false;
   private panX = 0;
   private panY = 0;
   private offsetX = 0;
@@ -23,7 +24,7 @@ export class Game {
   private isLocked = false;
   private previewshapes: Map<string, Shape>;
   private cursors: Map<string, Cursor>;
-  private remoteSelections: Map<string,RemoteSelection>;
+  private remoteSelections: Map<string, RemoteSelection>;
   private currentShape: Shape | null;
   private needsRender: boolean;
   private animationFrameId: number | null;
@@ -33,9 +34,11 @@ export class Game {
   private readonly PREVIEW_INTERVAL = 33;
   private readonly CURSOR_INTERVAL = 16;
   private selectedShapeId: string | null;
-  private interaction:"idle"| "drawing"| "moving"| "resizing"| "marquee" | "groupMove" | "rotating" = "idle";
-  private dragStart = {x: 0,y: 0};
+  private interaction: "idle"| "drawing"| "moving"| "resizing"| "marquee"| "groupMove"| "rotating" = "idle";
+  private dragStart = { x: 0, y: 0 };
   private resizeHandle: "tl" | "tr" | "bl" | "br" | null = null;
+  private textResizeMode: "scale" | "wrap" = "scale";
+
   private SELECTION_PADDING = 5;
   private HANDLE_SIZE = 8;
 
@@ -47,6 +50,18 @@ export class Game {
   private fillStyle: "solid" | "cross-hatch" | "hachure";
 
   private opacity: number = 1;
+
+  private textEditor: HTMLTextAreaElement | null = null;
+  private textEditorX: number = 0;
+  private textEditorY: number = 0;
+  private editingTextShapeId: string | null = null;
+  private textPreviewShapeId: string | null = null;
+
+  private fontSize: number = 24;
+  private fontFamily: "sans" | "mono" | "serif" = "sans";
+  private fontWeight: "normal" | "bold" = "normal";
+  private fontStyle: "normal" | "italic" = "normal";
+  private textAlign: "left" | "center" | "right" = "left";
 
   private initialShape: Shape | null = null;
   private initialGroupShapes: Shape[] | null = null;
@@ -79,6 +94,11 @@ export class Game {
     bounds: SelectionBound;
   } | null = null;
 
+  private hasSeenTextResizeBehaviour: boolean = false ;
+  private showMsgListener?: (show: boolean) => void;
+
+  private canShowTextProperties? :(show: boolean) => void;
+
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d")!;
@@ -96,7 +116,7 @@ export class Game {
     this.isLocked = false;
     this.previewshapes = new Map<string, Shape>();
     this.cursors = new Map<string, Cursor>();
-    this.remoteSelections = new Map<string,RemoteSelection>();
+    this.remoteSelections = new Map<string, RemoteSelection>();
     this.currentShape = null;
     this.needsRender = true;
     this.animationFrameId = 0;
@@ -133,13 +153,21 @@ export class Game {
     this.onlineUsers = callback;
   }
 
-  setUsersListener(callback: (user: User[]) => void){
+  setUsersListener(callback: (user: User[]) => void) {
     this.usersListener = callback;
     this.usersListener([...this.users]);
   }
 
   setToastListener(callback: (toast: Toast) => void) {
     this.toastListener = callback;
+  }
+
+  setShowResizeMsg(callback: (show: boolean) => void){
+    this.showMsgListener = callback;
+  }
+
+  setShowTextProperty(callback: (show: boolean) => void){
+    this.canShowTextProperties = callback;
   }
 
   setSnapToGrid(val: boolean) {
@@ -151,15 +179,18 @@ export class Game {
   }
 
   setSelectedTool(tool: Tool) {
+    if (this.textEditor) {
+      this.finishTextEditing();
+    }
     this.selectedTool = tool;
     this.toolListener?.(tool);
     if (this.selectedTool !== "select") {
       this.selectedShapeId = null;
+      this.canShowTextProperties?.(false);
       this.interaction = "idle";
       this.needsRender = true;
     }
-    this.canvas.style.cursor =
-      tool == "hand" ? "grab" : tool == "select" ? "default" : "crosshair";
+    this.canvas.style.cursor = tool == "hand" ? "grab" : tool == "select" ? "default" : "crosshair";
     this.shapeSelection?.(null);
   }
 
@@ -170,6 +201,10 @@ export class Game {
 
   setStrokeColor(newStrokeColor: string) {
     this.strokeColor = newStrokeColor;
+    if(this.textEditor){
+      this.handleTextEditorInput();
+      return;
+    }
   }
 
   setFillColor(newFillColor: string) {
@@ -192,6 +227,31 @@ export class Game {
     this.opacity = newOpacity;
   }
 
+  setTextStyle(fontSize: number,fontFamily: "mono" | "sans" | "serif",fontWeight: "normal" | "bold",fontStyle: "normal" | "italic",textAlign: "left" | "center" | "right",) {
+    this.fontSize = fontSize;
+    this.fontFamily = fontFamily;
+    this.fontWeight = fontWeight;
+    this.fontStyle = fontStyle;
+    this.textAlign = textAlign;
+
+    if(this.textEditor){
+      this.textEditor.style.fontSize = `${(fontSize * this.scale)}px`;
+      this.textEditor.style.fontFamily =fontFamily === "serif"? "serif": fontFamily === "mono"? "monospace": "sans-serif";
+      this.textEditor.style.fontWeight = fontWeight;
+      this.textEditor.style.fontStyle = fontStyle;
+      this.textEditor.style.textAlign = textAlign;
+
+      this.handleTextEditorInput();
+    }
+
+    if(this.selectedShapeId){
+      const shape = this.findShape(this.selectedShapeId);
+      if(shape?.type == "text"){
+        this.updateSelectedShape({fontFamily,fontSize,fontStyle,fontWeight,textAlign});
+      }
+    }
+  }
+
   private getCurrentStyling(): ShapeStyle {
     return {
       strokeColor: this.strokeColor,
@@ -202,7 +262,7 @@ export class Game {
       fillStyle: this.fillStyle,
 
       opacity: this.opacity,
-      zIndex: this.getNextZIndex()
+      zIndex: this.getNextZIndex(),
     };
   }
 
@@ -215,28 +275,54 @@ export class Game {
     this.broadcastSelection(false);
   }
 
-  private groupSelected(){
+  private groupSelected() {
     this.selectedShapeId = null;
+    this.canShowTextProperties?.(false);
     this.currentShape = null;
     this.selectionListener?.(this.groupSelection !== null);
     this.needsRender = true;
     this.broadcastSelection(false);
   }
 
-  private getLeftTopWidthHeight(shape: Shape):{left:number,top:number,width:number,height:number}{
-    switch(shape.type){
-      case "rect": 
-        return {left: shape.x, top: shape.y, width: shape.width, height: shape.height};
+  private getLeftTopWidthHeight(shape: Shape): {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } {
+    switch (shape.type) {
+      case "rect":
+        return {
+          left: shape.x,
+          top: shape.y,
+          width: shape.width,
+          height: shape.height,
+        };
 
       case "ellipse":
-        return {left: shape.centerX - shape.radX, top: shape.centerY - shape.radY, width: shape.radX * 2, height: shape.radY * 2};
+        return {
+          left: shape.centerX - shape.radX,
+          top: shape.centerY - shape.radY,
+          width: shape.radX * 2,
+          height: shape.radY * 2,
+        };
 
       case "diamond":
-        return {left: shape.left, top: shape.top, width: shape.width, height: shape.height};
+        return {
+          left: shape.left,
+          top: shape.top,
+          width: shape.width,
+          height: shape.height,
+        };
 
       case "line":
       case "arrow":
-        return {left: Math.min(shape.sX, shape.eX), top: Math.min(shape.sY, shape.eY), width: Math.abs(shape.eX - shape.sX), height: Math.abs(shape.eY - shape.sY)};
+        return {
+          left: Math.min(shape.sX, shape.eX),
+          top: Math.min(shape.sY, shape.eY),
+          width: Math.abs(shape.eX - shape.sX),
+          height: Math.abs(shape.eY - shape.sY),
+        };
 
       case "pencil":
         const xs = shape.points.map((p) => p.x);
@@ -245,33 +331,63 @@ export class Game {
         const left = Math.min(...xs);
         const top = Math.min(...ys);
 
-        return {left,top, width: Math.max(...xs) - left, height: Math.max(...ys) - top};
+        return {
+          left,
+          top,
+          width: Math.max(...xs) - left,
+          height: Math.max(...ys) - top,
+        };
+
+      case "text":
+        return {
+          left: shape.x,
+          top: shape.y,
+          width: shape.width,
+          height: shape.height,
+        };
+        break;
     }
-    return {left:0,top:0,width:0,height:0};
+    return { left: 0, top: 0, width: 0, height: 0 };
   }
 
-  private drawBox(left:number,top:number,width:number,height:number){
+  private drawBox(left: number, top: number, width: number, height: number) {
     this.ctx.save();
     this.ctx.strokeRect(
-        left - this.SELECTION_PADDING,
-        top - this.SELECTION_PADDING,
-        width + this.SELECTION_PADDING * 2,
-        height + this.SELECTION_PADDING * 2,
-      );
+      left - this.SELECTION_PADDING,
+      top - this.SELECTION_PADDING,
+      width + this.SELECTION_PADDING * 2,
+      height + this.SELECTION_PADDING * 2,
+    );
     this.ctx.restore();
   }
 
-  private getHandles(left:number,top:number,width:number,height:number){
+  private getHandles(left: number, top: number, width: number, height: number) {
     const handles = [
-        { x: left - this.SELECTION_PADDING, y: top - this.SELECTION_PADDING, dir:"tl" },
-        { x: left + width + this.SELECTION_PADDING, y: top - this.SELECTION_PADDING, dir: "tr"},
-        { x: left - this.SELECTION_PADDING,y: top + height + this.SELECTION_PADDING, dir: "bl"},
-        { x: left + width + this.SELECTION_PADDING, y: top + height + this.SELECTION_PADDING, dir: "br"},
-      ];
+      {
+        x: left - this.SELECTION_PADDING,
+        y: top - this.SELECTION_PADDING,
+        dir: "tl",
+      },
+      {
+        x: left + width + this.SELECTION_PADDING,
+        y: top - this.SELECTION_PADDING,
+        dir: "tr",
+      },
+      {
+        x: left - this.SELECTION_PADDING,
+        y: top + height + this.SELECTION_PADDING,
+        dir: "bl",
+      },
+      {
+        x: left + width + this.SELECTION_PADDING,
+        y: top + height + this.SELECTION_PADDING,
+        dir: "br",
+      },
+    ];
     return handles;
   }
 
-  private drawHandles(handles: {x:number,y:number,dir:string}[]) {
+  private drawHandles(handles: { x: number; y: number; dir: string }[]) {
     this.ctx.fillStyle = "#3b82f6";
 
     handles.map((h: any) => {
@@ -284,35 +400,36 @@ export class Game {
     });
   }
 
-  private getRotationHandle(handles: {x:number,y:number,dir:string}[]){
-    const tl = handles.find(h => h.dir == "tl");
-    const tr = handles.find(h => h.dir == "tr");
+  private getRotationHandle(handles: { x: number; y: number; dir: string }[]) {
+    const tl = handles.find((h) => h.dir == "tl");
+    const tr = handles.find((h) => h.dir == "tr");
 
     const cx = (tl!.x + tr!.x) / 2;
     const cy = (tl!.y + tr!.y) / 2;
 
     const offset = 25 / this.scale;
 
-    const rx = cx, ry = cy - offset;
+    const rx = cx,
+      ry = cy - offset;
 
-    return {cx,cy,rx,ry};
+    return { cx, cy, rx, ry };
   }
 
-  private drawRotationHandle(handles: {x:number,y:number,dir:string}[]){
+  private drawRotationHandle(handles: { x: number; y: number; dir: string }[]) {
     this.ctx.save();
 
-    const {cx,cy,rx,ry} = this.getRotationHandle(handles);
+    const { cx, cy, rx, ry } = this.getRotationHandle(handles);
 
     this.ctx.beginPath();
-    this.ctx.moveTo(cx,cy);
-    this.ctx.lineTo(rx,ry);
+    this.ctx.moveTo(cx, cy);
+    this.ctx.lineTo(rx, ry);
     this.ctx.stroke();
 
     this.ctx.beginPath();
-    this.ctx.arc(rx,ry,6/this.scale,0,Math.PI*2);
+    this.ctx.arc(rx, ry, 6 / this.scale, 0, Math.PI * 2);
     this.ctx.strokeStyle = "#3b82f6";
     this.ctx.stroke();
-    
+
     this.ctx.restore();
   }
 
@@ -322,19 +439,19 @@ export class Game {
     this.ctx.strokeStyle = color;
     this.ctx.lineWidth = this.strokeWidth / this.scale;
 
-    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
+    const { left, top, width, height } = this.getLeftTopWidthHeight(shape);
 
     const cx = left + width / 2;
     const cy = top + height / 2;
 
-    if(shape.rotation){
-      this.ctx.translate(cx,cy);
+    if (shape.rotation) {
+      this.ctx.translate(cx, cy);
       this.ctx.rotate(shape.rotation);
-      this.ctx.translate(-cx,-cy);
+      this.ctx.translate(-cx, -cy);
     }
-    this.drawBox(left,top,width,height);
-    const handles = this.getHandles(left,top,width,height);
-    if(color == "#3b82f6"){
+    this.drawBox(left, top, width, height);
+    const handles = this.getHandles(left, top, width, height);
+    if (color == "#3b82f6") {
       this.drawRotationHandle(handles);
       this.drawHandles(handles);
     }
@@ -342,14 +459,14 @@ export class Game {
     this.ctx.restore();
   }
 
-  private isOnRotationHandle(shape: Shape, x: number, y: number){
-    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
-    const handles = this.getHandles(left,top,width,height);
+  private isOnRotationHandle(shape: Shape, x: number, y: number) {
+    const { left, top, width, height } = this.getLeftTopWidthHeight(shape);
+    const handles = this.getHandles(left, top, width, height);
 
-    const {rx,ry} = this.getRotationHandle(handles);
-    const distance = Math.sqrt((x-rx)**2 + (y-ry)**2);
+    const { rx, ry } = this.getRotationHandle(handles);
+    const distance = Math.sqrt((x - rx) ** 2 + (y - ry) ** 2);
 
-    return distance <= 20/this.scale;
+    return distance <= 20 / this.scale;
   }
 
   snap(val: number) {
@@ -388,7 +505,7 @@ export class Game {
     this.needsRender = true;
   }
 
-  private isPointOnRect(x: number, y: number, shape: Extract<Shape, { type: "rect" }>): boolean {
+  private isPointOnRect(x: number,y: number,shape: Extract<Shape, { type: "rect" }>): boolean {
     const padding = 5 / this.scale;
 
     return (
@@ -399,7 +516,7 @@ export class Game {
     );
   }
 
-  private isPointOnEllipse(x: number, y: number, shape: Extract<Shape, { type: "ellipse" }>): boolean {
+  private isPointOnEllipse(x: number,y: number,shape: Extract<Shape, { type: "ellipse" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = x - shape.centerX;
@@ -411,7 +528,7 @@ export class Game {
     return (dx * dx) / (rX * rX) + (dy * dy) / (rY * rY) <= 1;
   }
 
-  private isPointOnDiamond(x: number, y: number, shape: Extract<Shape, { type: "diamond" }>): boolean {
+  private isPointOnDiamond(x: number,y: number,shape: Extract<Shape, { type: "diamond" }>): boolean {
     const padding = 5 / this.scale;
 
     const dx = Math.abs(x - shape.centerX);
@@ -434,7 +551,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnArrow(x: number, y: number, shape: Extract<Shape, { type: "arrow" }>): boolean {
+  private isPointOnArrow(x: number,y: number,shape: Extract<Shape, { type: "arrow" }>): boolean {
     const padding = 5 / this.scale;
 
     const minX = Math.min(shape.sX, shape.eX) - padding;
@@ -445,7 +562,7 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
-  private isPointOnPencil(x: number, y: number, shape: Extract<Shape, { type: "pencil" }>): boolean {
+  private isPointOnPencil(x: number,y: number,shape: Extract<Shape, { type: "pencil" }>): boolean {
     const padding = 5 / this.scale;
 
     const xs = shape.points.map((p) => p.x);
@@ -459,12 +576,16 @@ export class Game {
     return minX <= x && x <= maxX && minY <= y && y <= maxY;
   }
 
+  private isPointOnText(x: number,y: number,shape: TextShape): boolean {
+    return (shape.x <= x &&x <= shape.x + shape.width &&shape.y <= y &&y <= shape.y + shape.height);
+  }
+
   private isOnResizeHandle(shape: Shape,x: number,y: number): "tl" | "tr" | "bl" | "br" | null {
-    const {left,top,width,height} = this.getLeftTopWidthHeight(shape);
+    const { left, top, width, height } = this.getLeftTopWidthHeight(shape);
 
     const s = this.HANDLE_SIZE / this.scale;
 
-    const handles = this.getHandles(left,top,width,height);
+    const handles = this.getHandles(left, top, width, height);
 
     for (const h of handles) {
       if (Math.abs(x - h.x) <= s && Math.abs(y - h.y) <= s) {
@@ -478,7 +599,7 @@ export class Game {
   private findShapeAtPoint(x: number, y: number) {
     for (let i = this.existingShapes.length - 1; i >= 0; i--) {
       const shape = this.existingShapes[i];
-      const local = this.getLocalPoint(shape,x,y);
+      const local = this.getLocalPoint(shape, x, y);
 
       switch (shape.type) {
         case "rect":
@@ -504,6 +625,13 @@ export class Game {
         case "pencil":
           if (this.isPointOnPencil(local.x, local.y, shape)) return shape;
           break;
+
+        case "text":
+          if (this.isPointOnText(local.x, local.y, shape)){
+            this.canShowTextProperties?.(true);
+            return shape;
+          } 
+          break;
       }
     }
   }
@@ -528,7 +656,14 @@ export class Game {
 
     this.sortByZIndex();
 
-    this.existingShapes?.forEach((shape) => this.drawShape(shape));
+    const previewShapeIds = new Set([...this.previewshapes.values().map(s => s.id)]);
+
+    this.existingShapes?.forEach((shape) => {
+      if(shape.id === this.editingTextShapeId)return;
+      if(previewShapeIds.has(shape.id))return;
+      this.drawShape(shape);
+    }
+  );
 
     if (this.groupSelection) {
       this.drawGroupSelection();
@@ -539,31 +674,31 @@ export class Game {
       }
     }
 
-    for (const pshape of this.previewshapes.values()) {
+    for (const [userId,pshape] of this.previewshapes) {
+      if(userId == "self")continue;
       this.drawShape(pshape);
     }
 
     this.drawSelectionMarquee();
 
-    for (const [userId,cursor] of this.cursors.entries()) {
+    for (const [userId, cursor] of this.cursors.entries()) {
       const remoteSelections = this.remoteSelections.get(userId);
 
-      this.drawCursor(cursor,remoteSelections?.editing);
+      this.drawCursor(cursor, remoteSelections?.editing);
 
-      if(!remoteSelections)continue;
+      if (!remoteSelections) continue;
 
       const selections = remoteSelections.shapeIds;
 
-      if(selections.length == 1){
+      if (selections.length == 1) {
         const shapeSelected = this.findShape(selections[0]);
 
-        if(shapeSelected){
-          this.drawSelectionBox(shapeSelected,cursor.color);
+        if (shapeSelected) {
+          this.drawSelectionBox(shapeSelected, cursor.color);
         }
-      }
-      else if(selections.length > 1){
-          const bounds = this.getGroupBounds(new Set(selections));
-          this.drawGroupSelection(bounds,cursor.color);
+      } else if (selections.length > 1) {
+        const bounds = this.getGroupBounds(new Set(selections));
+        this.drawGroupSelection(bounds, cursor.color);
       }
     }
   }
@@ -577,32 +712,42 @@ export class Game {
     };
   }
 
-  private broadcastSelection(editing: boolean = false){
-    let shapeIds : string[] = [];
+  private broadcastSelection(editing: boolean = false) {
+    let shapeIds: string[] = [];
 
-    if(this.selectedShapeId) shapeIds = [this.selectedShapeId];
-    else if(this.groupSelection) shapeIds = [...this.groupSelection.shapeIds];
+    if (this.selectedShapeId) shapeIds = [this.selectedShapeId];
+    else if (this.groupSelection) shapeIds = [...this.groupSelection.shapeIds];
 
-    if(this.socket.readyState == WebSocket.OPEN){
-      this.socket.send(JSON.stringify({
-        type: "selection:update",
-        roomId: this.roomId,
-        shapeIds,
-        editing
-      }));
+    if (this.socket.readyState == WebSocket.OPEN) {
+      this.socket.send(
+        JSON.stringify({
+          type: "selection:update",
+          roomId: this.roomId,
+          shapeIds,
+          editing,
+        }),
+      );
     }
   }
 
-  private drawGroupSelection(bounds?: SelectionBound, color : string = "#3b82f6") {
+  private drawGroupSelection(
+    bounds?: SelectionBound,
+    color: string = "#3b82f6",
+  ) {
     const b = bounds ?? this.groupSelection?.bounds;
-    if(!b)return;
+    if (!b) return;
 
     this.ctx.save();
     this.ctx.strokeStyle = color;
     this.ctx.lineWidth = this.strokeWidth / this.scale;
-    this.ctx.strokeRect(b.x - this.SELECTION_PADDING, b.y - this.SELECTION_PADDING, b.width + 2 * this.SELECTION_PADDING, b.height + 2 * this.SELECTION_PADDING);
+    this.ctx.strokeRect(
+      b.x - this.SELECTION_PADDING,
+      b.y - this.SELECTION_PADDING,
+      b.width + 2 * this.SELECTION_PADDING,
+      b.height + 2 * this.SELECTION_PADDING,
+    );
 
-    const handles = this.getHandles(b.x,b.y,b.width,b.height);
+    const handles = this.getHandles(b.x, b.y, b.width, b.height);
     //this.drawHandles(handles);//may-be in future
     this.ctx.restore();
   }
@@ -629,7 +774,12 @@ export class Game {
         this.selectionRect.height,
       );
 
-      const handles = this.getHandles(this.selectionRect.x,this.selectionRect.y,this.selectionRect.width,this.selectionRect.height);
+      const handles = this.getHandles(
+        this.selectionRect.x,
+        this.selectionRect.y,
+        this.selectionRect.width,
+        this.selectionRect.height,
+      );
 
       for (const h of handles) {
         this.ctx.fillStyle = "#3b82f6";
@@ -639,7 +789,7 @@ export class Game {
     }
   }
 
-  private drawCursor(cursor: Cursor, editing : boolean = false) {
+  private drawCursor(cursor: Cursor, editing: boolean = false) {
     this.ctx.save();
 
     this.ctx.translate(cursor.x, cursor.y);
@@ -661,7 +811,11 @@ export class Game {
 
     this.ctx.font = "12px sans-serif";
     this.ctx.fillStyle = cursor.color ?? "white";
-    this.ctx.fillText((cursor.name ?? "Guest" )+(editing ? " is editing..." : ""), 24, 24);
+    this.ctx.fillText(
+      (cursor.name ?? "Guest") + (editing ? " is editing..." : ""),
+      24,
+      24,
+    );
 
     this.ctx.restore();
   }
@@ -704,10 +858,10 @@ export class Game {
 
     const b = this.getShapeBounds(shape);
 
-    if(b && shape.rotation){
-      this.ctx.translate((b.left+b.right)/2,(b.top+b.bottom)/2);
+    if (b && shape.rotation) {
+      this.ctx.translate((b.left + b.right) / 2, (b.top + b.bottom) / 2);
       this.ctx.rotate(shape.rotation);
-      this.ctx.translate(-(b.left+b.right)/2,-(b.top+b.bottom)/2);
+      this.ctx.translate(-(b.left + b.right) / 2, -(b.top + b.bottom) / 2);
     }
 
     if (shape.type === "rect") {
@@ -779,64 +933,91 @@ export class Game {
       );
 
       this.ctx.stroke();
+    } else if (shape.type == "text") {
+      const family = shape.fontFamily == "serif" ? "serif" : shape.fontFamily == "mono" ? "monospace" : "sans-serif";
+
+      this.ctx.font = `${shape.fontStyle} ${shape.fontWeight} ${shape.fontSize}px ${family}`;
+
+      this.ctx.fillStyle = shape.strokeColor;
+      this.ctx.textBaseline = "top";
+      this.ctx.textAlign = shape.textAlign;
+
+      const lines = this.getWrappedTextLines(shape);
+      const lineHeight = shape.fontSize * 1.2;
+
+      let textX = shape.x;
+
+      if (shape.textAlign == "center") {
+        textX = shape.x + shape.width / 2;
+      } else if (shape.textAlign == "right") {
+        textX = shape.x + shape.width;
+      }
+
+      lines.forEach((line, idx) => {
+        this.ctx.fillText(line, textX, shape.y + idx * lineHeight);
+      });
     }
     this.ctx.restore();
   }
 
-  updateSelectedShape(updates: Partial<Shape>){
-    if(this.selectedShapeId){
+  updateSelectedShape(updates: Partial<Shape>) {
+    if (this.selectedShapeId) {
       const idx = this.findShapeIndex(this.selectedShapeId);
-      if(idx==-1)return;
+      if (idx == -1) return;
       const before = structuredClone(this.existingShapes[idx]);
       //@ts-ignore
-      this.existingShapes[idx] = {...this.existingShapes[idx],...updates};
+      this.existingShapes[idx] = { ...this.existingShapes[idx], ...updates };
 
       this.undoStack.push({
-        type:"update",
+        type: "update",
         before: before,
-        after: structuredClone(this.existingShapes[idx])
+        after: structuredClone(this.existingShapes[idx]),
       });
 
       this.redoStack = [];
       this.needsRender = true;
 
-      this.socket.send(JSON.stringify({
-        type:"shape:update",
-        roomId: this.roomId,
-        shape: this.existingShapes[idx]
-      }));
-    }
-    else if(this.groupSelection){
-      const before = [...this.groupSelection.shapeIds].map(id => structuredClone(this.findShape(id))!);
+      this.socket.send(
+        JSON.stringify({
+          type: "shape:update",
+          roomId: this.roomId,
+          shape: this.existingShapes[idx],
+        }),
+      );
+    } else if (this.groupSelection) {
+      const before = [...this.groupSelection.shapeIds].map(
+        (id) => structuredClone(this.findShape(id))!,
+      );
       const after: Shape[] = [];
 
-      for(const shapeId of this.groupSelection.shapeIds){
+      for (const shapeId of this.groupSelection.shapeIds) {
         const idx = this.findShapeIndex(shapeId);
-        if(idx == -1)continue;
+        if (idx == -1) continue;
         //@ts-ignore
-        this.existingShapes[idx] = {...this.existingShapes[idx],...updates};
+        this.existingShapes[idx] = { ...this.existingShapes[idx], ...updates };
         after.push(structuredClone(this.existingShapes[idx]));
       }
 
       this.undoStack.push({
-        type:"group-update",
-        before:before,
-        after: after
+        type: "group-update",
+        before: before,
+        after: after,
       });
       this.redoStack = [];
       this.needsRender = true;
 
-      this.socket.send(JSON.stringify({
-        type: "shapes:update",
-        roomId: this.roomId,
-        shapes: after
-      }));
+      this.socket.send(
+        JSON.stringify({
+          type: "shapes:update",
+          roomId: this.roomId,
+          shapes: after,
+        }),
+      );
     }
   }
 
-  private getLocalPoint(shape: Shape, x: number, y: number){
-    if(!shape.rotation)
-      return {x,y};
+  private getLocalPoint(shape: Shape, x: number, y: number) {
+    if (!shape.rotation) return { x, y };
 
     const bounds = this.getShapeBounds(shape);
 
@@ -851,19 +1032,19 @@ export class Game {
 
     return {
       x: cx + dx * cos - dy * sin,
-      y: cy + dx * sin + dy * cos
+      y: cy + dx * sin + dy * cos,
     };
   }
 
   private addShape(shape: Shape) {
-    if(this.existingShapes.find(s => s.id == shape.id))return;
+    if (this.existingShapes.find((s) => s.id == shape.id)) return;
     this.existingShapes.push(shape);
     this.sortByZIndex();
     this.needsRender = true;
   }
 
   private findShapeIndex(shapeId: string): number {
-    const idx = this.existingShapes.findIndex(shape => shape.id === shapeId);
+    const idx = this.existingShapes.findIndex((shape) => shape.id === shapeId);
     return idx;
   }
 
@@ -890,6 +1071,24 @@ export class Game {
     this.needsRender = true;
   }
 
+  private dblClickHandler = (e: MouseEvent) => {
+    if (this.selectedTool !== "select") return;
+
+    const { x, y } = this.getMousePos(e);
+    const shape = this.findShapeAtPoint(x, y);
+    if (!shape || shape.type !== "text") return;
+
+    this.interaction = "idle";
+    this.currentShape = null;
+    this.selectionRect = null;
+    this.resizeHandle = null;
+    this.selectedShapeId = shape.id;
+    this.groupSelection = null;
+    this.needsRender = true;
+
+    this.editTextShape(shape);
+  };
+
   initHandlers() {
     this.socket.onmessage = (e) => {
       const received = JSON.parse(e.data);
@@ -906,8 +1105,13 @@ export class Game {
             name: received.name,
             color: received.color,
           });
-          if(!this.users.find(u => u.id === received.userId)){
-            this.users.push({id: received.userId,name:received.name,color:received.color,you:false});
+          if (!this.users.find((u) => u.id === received.userId)) {
+            this.users.push({
+              id: received.userId,
+              name: received.name,
+              color: received.color,
+              you: false,
+            });
           }
           this.usersListener?.([...this.users]);
           this.onlineUsers?.(this.users.length);
@@ -920,7 +1124,7 @@ export class Game {
         case "user:left":
           this.cursors.delete(received.userId);
           this.remoteSelections.delete(received.userId);
-          this.users = this.users.filter(u => u.id !== received.userId);
+          this.users = this.users.filter((u) => u.id !== received.userId);
           this.usersListener?.([...this.users]);
           this.onlineUsers?.(this.users.length);
           this.toastListener?.({
@@ -937,12 +1141,12 @@ export class Game {
           this.needsRender = true;
           break;
         case "selection:update":
-          if(received.shapeIds && received.shapeIds.length){
-            this.remoteSelections.set(received.userId,{
+          if (received.shapeIds && received.shapeIds.length) {
+            this.remoteSelections.set(received.userId, {
               shapeIds: received.shapeIds,
-              editing: received.editing
+              editing: received.editing,
             });
-          }else{
+          } else {
             this.remoteSelections.delete(received.userId);
           }
           this.needsRender = true;
@@ -957,26 +1161,28 @@ export class Game {
           break;
         case "shapes:add":
           this.previewshapes.delete(received.userId);
-          for(const shape of received.shapes){
+          for (const shape of received.shapes) {
             this.addShape(shape);
           }
-        break;
+          break;
         case "shape:update":
+          this.previewshapes.delete(received.userId);
           this.updateShape(received.shape.id, received.shape);
           break;
         case "shapes:update":
-          for(const shape of received.shapes){
-            this.updateShape(shape.id,shape);
+          this.previewshapes.delete(received.userId);
+          for (const shape of received.shapes) {
+            this.updateShape(shape.id, shape);
           }
           break;
         case "shape:delete":
           this.deleteShape(received.shape.id);
           break;
         case "shapes:delete":
-          for(const id of received.shapeIds){
+          for (const id of received.shapeIds) {
             this.deleteShape(id);
           }
-        break;
+          break;
         case "layer:update":
           this.existingShapes = received.shapes;
           this.sortByZIndex();
@@ -990,6 +1196,7 @@ export class Game {
     this.canvas.addEventListener("mousedown", this.mouseDownHandler);
     window.addEventListener("mouseup", this.mouseUpHandler);
     window.addEventListener("mousemove", this.mouseMoveHandler);
+    this.canvas.addEventListener("dblclick", this.dblClickHandler);
   }
 
   initKeyboardhandlers() {
@@ -997,7 +1204,7 @@ export class Game {
   }
 
   private keyDownHandler = (e: KeyboardEvent) => {
-    if (e.target instanceof HTMLInputElement ||e.target instanceof HTMLTextAreaElement)
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
       return;
 
     if (e.ctrlKey && !e.shiftKey && e.key == "z") {
@@ -1012,7 +1219,7 @@ export class Game {
       return;
     }
 
-    if(e.key == "Escape"){
+    if (e.key == "Escape") {
       e.preventDefault();
       this.shapeSelection(null);
       return;
@@ -1074,6 +1281,10 @@ export class Game {
       case "h":
         this.setSelectedTool("hand");
         break;
+
+      case "t":
+        this.setSelectedTool("text");
+        break;
     }
   };
 
@@ -1084,78 +1295,93 @@ export class Game {
     window.removeEventListener("mouseup", this.mouseUpHandler);
     window.removeEventListener("mousemove", this.mouseMoveHandler);
     window.removeEventListener("keydown", this.keyDownHandler);
+    this.canvas.removeEventListener("dblclick", this.dblClickHandler);
+    this.removeTextEditor();
   }
 
-  private getNextZIndex():number{
-    if(this.existingShapes.length == 0)return 0;
-    return Math.max(...this.existingShapes.map(s => s.zIndex)) + 1;
+  private getNextZIndex(): number {
+    if (this.existingShapes.length == 0) return 0;
+    return Math.max(...this.existingShapes.map((s) => s.zIndex)) + 1;
   }
 
-  private reassignZIndex(){
-    this.existingShapes.forEach((shape,idx)=>shape.zIndex = idx);
+  private reassignZIndex() {
+    this.existingShapes.forEach((shape, idx) => (shape.zIndex = idx));
   }
 
-  private sortByZIndex(){
-    this.existingShapes.sort((a:Shape,b:Shape)=> a.zIndex - b.zIndex);
+  private sortByZIndex() {
+    this.existingShapes.sort((a: Shape, b: Shape) => a.zIndex - b.zIndex);
   }
 
-  bringForward(){
-    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
-    if(idx == -1 || idx == this.existingShapes.length - 1)
-      return;
+  bringForward() {
+    const idx = this.selectedShapeId
+      ? this.findShapeIndex(this.selectedShapeId)
+      : -1;
+    if (idx == -1 || idx == this.existingShapes.length - 1) return;
     const before = structuredClone(this.existingShapes);
-    [this.existingShapes[idx],this.existingShapes[idx+1]] = [this.existingShapes[idx+1],this.existingShapes[idx]];
+    [this.existingShapes[idx], this.existingShapes[idx + 1]] = [
+      this.existingShapes[idx + 1],
+      this.existingShapes[idx],
+    ];
     this.reassignZIndex();
-    this.afterLayerOperation(before);  
+    this.afterLayerOperation(before);
   }
 
-  sendBackward(){
-    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
-    if(idx <= 0)
-      return;
+  sendBackward() {
+    const idx = this.selectedShapeId
+      ? this.findShapeIndex(this.selectedShapeId)
+      : -1;
+    if (idx <= 0) return;
     const before = structuredClone(this.existingShapes);
-    [this.existingShapes[idx],this.existingShapes[idx-1]] = [this.existingShapes[idx-1],this.existingShapes[idx]];
+    [this.existingShapes[idx], this.existingShapes[idx - 1]] = [
+      this.existingShapes[idx - 1],
+      this.existingShapes[idx],
+    ];
     this.reassignZIndex();
-    this.afterLayerOperation(before);  
+    this.afterLayerOperation(before);
   }
 
-  bringToFront(){
-    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
-    if(idx == -1)return;
+  bringToFront() {
+    const idx = this.selectedShapeId
+      ? this.findShapeIndex(this.selectedShapeId)
+      : -1;
+    if (idx == -1) return;
     const before = structuredClone(this.existingShapes);
-    const shape = this.existingShapes.splice(idx,1)[0];
+    const shape = this.existingShapes.splice(idx, 1)[0];
     this.existingShapes.push(shape);
     this.reassignZIndex();
-    this.afterLayerOperation(before);  
+    this.afterLayerOperation(before);
   }
 
-  sendToBack(){
-    const idx = this.selectedShapeId? this.findShapeIndex(this.selectedShapeId) : -1;
-    if(idx == -1)return;
+  sendToBack() {
+    const idx = this.selectedShapeId
+      ? this.findShapeIndex(this.selectedShapeId)
+      : -1;
+    if (idx == -1) return;
     const before = structuredClone(this.existingShapes);
-    const shape = this.existingShapes.splice(idx,1)[0];
-    this.existingShapes.unshift(shape);  
+    const shape = this.existingShapes.splice(idx, 1)[0];
+    this.existingShapes.unshift(shape);
     this.reassignZIndex();
-    this.afterLayerOperation(before);  
+    this.afterLayerOperation(before);
   }
 
-  private afterLayerOperation(before: Shape[]){
+  private afterLayerOperation(before: Shape[]) {
     this.undoStack.push({
-      type:"layer",
+      type: "layer",
       before: structuredClone(before),
-      after: structuredClone(this.existingShapes)
+      after: structuredClone(this.existingShapes),
     });
     this.redoStack = [];
     this.needsRender = true;
-    if(this.socket.readyState == WebSocket.OPEN){
-      console.log("sending layer:update", this.existingShapes.map(s => ({id: s.id, zIndex: s.zIndex})));
-      this.socket.send(JSON.stringify({
-        type: "layer:update",
-        roomId: this.roomId,
-        shapes: this.existingShapes
-      }))
-    }else{
-      console.log('socket closed h');
+    if (this.socket.readyState == WebSocket.OPEN) {
+      this.socket.send(
+        JSON.stringify({
+          type: "layer:update",
+          roomId: this.roomId,
+          shapes: this.existingShapes,
+        }),
+      );
+    } else {
+      console.log("socket closed h");
     }
   }
 
@@ -1169,26 +1395,27 @@ export class Game {
       this.deleteShape(lastAction.shape.id);
     } else if (lastAction.type == "delete") {
       this.addShape(lastAction.shape);
-    } else if(lastAction.type === "update"){
+    } else if (lastAction.type === "update") {
       this.updateShape(lastAction.before.id, lastAction.before);
-    } else if(lastAction.type === "group-add"){
-      for(const shape of lastAction.shapes)
-        this.deleteShape(shape.id);
-    } else if(lastAction.type === "group-delete"){
-      for(const shape of lastAction.shapes){
+    } else if (lastAction.type === "group-add") {
+      for (const shape of lastAction.shapes) this.deleteShape(shape.id);
+    } else if (lastAction.type === "group-delete") {
+      for (const shape of lastAction.shapes) {
         this.addShape(structuredClone(shape));
       }
-    } else if(lastAction.type === "group-update"){
-      for(const shape of lastAction.before){
-        this.updateShape(shape.id,structuredClone(shape));
+    } else if (lastAction.type === "group-update") {
+      for (const shape of lastAction.before) {
+        this.updateShape(shape.id, structuredClone(shape));
       }
-    } else if(lastAction.type === "layer"){
+    } else if (lastAction.type === "layer") {
       this.existingShapes = structuredClone(lastAction.before);
       this.sortByZIndex();
     }
 
-    if(this.groupSelection){
-      this.groupSelection.bounds = this.getGroupBounds(this.groupSelection.shapeIds);
+    if (this.groupSelection) {
+      this.groupSelection.bounds = this.getGroupBounds(
+        this.groupSelection.shapeIds,
+      );
     }
 
     this.needsRender = true;
@@ -1216,26 +1443,28 @@ export class Game {
       this.addShape(lastAction.shape);
     } else if (lastAction.type == "delete") {
       this.deleteShape(lastAction.shape.id);
-    } else if(lastAction.type == "update"){
+    } else if (lastAction.type == "update") {
       this.updateShape(lastAction.before.id, lastAction.after);
-    } else if(lastAction.type === "group-add"){
-      for(const shape of lastAction.shapes)
+    } else if (lastAction.type === "group-add") {
+      for (const shape of lastAction.shapes)
         this.addShape(structuredClone(shape));
-    } else if(lastAction.type === "group-delete"){
-      for(const shape of lastAction.shapes){
+    } else if (lastAction.type === "group-delete") {
+      for (const shape of lastAction.shapes) {
         this.deleteShape(shape.id);
       }
-    } else if(lastAction.type === "group-update"){
-      for(const shape of lastAction.after){
-        this.updateShape(shape.id,structuredClone(shape));
+    } else if (lastAction.type === "group-update") {
+      for (const shape of lastAction.after) {
+        this.updateShape(shape.id, structuredClone(shape));
       }
-    } else if(lastAction.type === "layer"){
+    } else if (lastAction.type === "layer") {
       this.existingShapes = structuredClone(lastAction.after);
       this.sortByZIndex();
     }
-    
-    if(this.groupSelection){
-      this.groupSelection.bounds = this.getGroupBounds(this.groupSelection.shapeIds);
+
+    if (this.groupSelection) {
+      this.groupSelection.bounds = this.getGroupBounds(
+        this.groupSelection.shapeIds,
+      );
     }
 
     this.needsRender = true;
@@ -1253,7 +1482,7 @@ export class Game {
     this.undoStack.push(structuredClone(lastAction));
   }
 
-  private moveSelectedShape(shape:Shape,dx: number, dy: number) {
+  private moveSelectedShape(shape: Shape, dx: number, dy: number) {
     switch (shape.type) {
       case "rect":
         shape.x += dx;
@@ -1286,6 +1515,11 @@ export class Game {
           p.y += dy;
         });
         break;
+
+      case "text":
+        shape.x += dx;
+        shape.y += dy;
+        break;
     }
     this.needsRender = true;
   }
@@ -1294,56 +1528,57 @@ export class Game {
     this.clipboardShape = null;
     this.clipboardShapes = null;
 
-    if (this.selectedShapeId){
-        const shape = this.findShape(this.selectedShapeId);
-        if (!shape) return;
+    if (this.selectedShapeId) {
+      const shape = this.findShape(this.selectedShapeId);
+      if (!shape) return;
 
-        this.clipboardShape = structuredClone(shape);
+      this.clipboardShape = structuredClone(shape);
     }
 
-    if(this.groupSelection){
-      this.clipboardShapes = [...this.groupSelection.shapeIds].map(id => structuredClone(this.findShape(id))!);
+    if (this.groupSelection) {
+      this.clipboardShapes = [...this.groupSelection.shapeIds].map(
+        (id) => structuredClone(this.findShape(id))!,
+      );
     }
   }
 
   pasteSelectedShape() {
+    if (this.clipboardShape) {
+      const newShape = structuredClone(this.clipboardShape);
+      newShape.id = crypto.randomUUID();
+      newShape.zIndex = this.getNextZIndex();
 
-    if (this.clipboardShape){
-        const newShape = structuredClone(this.clipboardShape);
-        newShape.id = crypto.randomUUID();
-        newShape.zIndex = this.getNextZIndex();
+      this.moveSelectedShape(newShape, 30, 30);
+      if (this.socket.readyState == WebSocket.OPEN) {
+        this.socket.send(
+          JSON.stringify({
+            type: "shape:add",
+            roomId: this.roomId,
+            shape: newShape,
+          }),
+        );
+      }
+      this.addShape(newShape);
 
-        this.moveSelectedShape(newShape, 30, 30);
-        if (this.socket.readyState == WebSocket.OPEN) {
-          this.socket.send(
-            JSON.stringify({
-              type: "shape:add",
-              roomId: this.roomId,
-              shape: newShape,
-            }),
-          );
-        }
-        this.addShape(newShape);
+      this.undoStack.push({
+        type: "add",
+        shape: structuredClone(newShape),
+      });
+      this.redoStack = [];
 
-        this.undoStack.push({
-          type: "add",
-          shape: structuredClone(newShape),
-        });
-        this.redoStack = [];
-
-        this.selectedShapeId = newShape.id;
+      this.selectedShapeId = newShape.id;
     }
 
-    if(this.clipboardShapes){
+    if (this.clipboardShapes) {
       const newShapes: Shape[] = [];
       let nextZ = this.getNextZIndex();
 
-      for(const shape of this.clipboardShapes){
+      for (const shape of this.clipboardShapes) {
         const copy = structuredClone(shape);
         copy.id = crypto.randomUUID();
         copy.zIndex = nextZ++;
 
-        this.moveSelectedShape(copy,30,30);
+        this.moveSelectedShape(copy, 30, 30);
         this.addShape(copy);
 
         newShapes.push(copy);
@@ -1351,16 +1586,18 @@ export class Game {
 
       this.undoStack.push({
         type: "group-add",
-        shapes: structuredClone(newShapes)
+        shapes: structuredClone(newShapes),
       });
       this.redoStack = [];
 
-      if(this.socket.readyState == WebSocket.OPEN && newShapes.length){
-          this.socket.send(JSON.stringify({
+      if (this.socket.readyState == WebSocket.OPEN && newShapes.length) {
+        this.socket.send(
+          JSON.stringify({
             type: "shapes:add",
             roomId: this.roomId,
-            shapes: newShapes
-          }))
+            shapes: newShapes,
+          }),
+        );
       }
 
       this.groupSelection = null;
@@ -1368,14 +1605,14 @@ export class Game {
   }
 
   duplicateShape() {
-    if(this.selectedShapeId || this.groupSelection){
+    if (this.selectedShapeId || this.groupSelection) {
       this.copySelectedShape();
       this.pasteSelectedShape();
     }
   }
 
   deleteSelectedShape() {
-    if (this.selectedShapeId){
+    if (this.selectedShapeId) {
       const shapeToBeDeleted = this.findShape(this.selectedShapeId);
 
       this.deleteShape(this.selectedShapeId);
@@ -1397,30 +1634,34 @@ export class Game {
       this.redoStack = [];
 
       this.selectedShapeId = null;
+      this.canShowTextProperties?.(false);
       this.shapeSelection(null);
     }
 
-    if(this.groupSelection){
-      const deletedShapes = [...this.groupSelection.shapeIds].map(id => this.findShape(id)).filter(shape => shape !== undefined).map(shape => structuredClone(shape));
+    if (this.groupSelection) {
+      const deletedShapes = [...this.groupSelection.shapeIds]
+        .map((id) => this.findShape(id))
+        .filter((shape) => shape !== undefined)
+        .map((shape) => structuredClone(shape));
 
-      for(const shape of deletedShapes){
+      for (const shape of deletedShapes) {
         this.deleteShape(shape.id);
       }
 
       this.undoStack.push({
         type: "group-delete",
-        shapes: deletedShapes
+        shapes: deletedShapes,
       });
       this.redoStack = [];
 
       if (this.socket.readyState == WebSocket.OPEN && deletedShapes.length) {
-          this.socket.send(
-            JSON.stringify({
-              type: "shapes:delete",
-              roomId: this.roomId,
-              shapeIds: deletedShapes.map(s => s.id),
-            }),
-          );
+        this.socket.send(
+          JSON.stringify({
+            type: "shapes:delete",
+            roomId: this.roomId,
+            shapeIds: deletedShapes.map((s) => s.id),
+          }),
+        );
       }
 
       this.groupSelection = null;
@@ -1476,6 +1717,15 @@ export class Game {
         };
 
         break;
+
+      case "text":
+        box = {
+          x: shape.x,
+          y: shape.y,
+          width: shape.width,
+          height: shape.height,
+        };
+        break;
     }
 
     return (
@@ -1487,7 +1737,6 @@ export class Game {
   }
 
   private getShapeBounds(shape: Shape) {
-
     switch (shape.type) {
       case "rect":
         return {
@@ -1533,8 +1782,17 @@ export class Game {
           bottom: Math.max(...ys),
         };
       }
+
+      case "text": {
+        return {
+          left: shape.x,
+          top: shape.y,
+          right: shape.x + shape.width,
+          bottom: shape.y + shape.height,
+        };
+      }
     }
-    return {left:0,right:0,top:0,bottom:0};
+    return { left: 0, right: 0, top: 0, bottom: 0 };
   }
 
   private getGroupBounds(ids: Set<string>) {
@@ -1554,14 +1812,424 @@ export class Game {
       bottom = Math.max(bottom, b.bottom);
     }
 
-    return { x: left, y: top, width: right - left, height: bottom - top};
+    return { x: left, y: top, width: right - left, height: bottom - top };
   }
 
   private pointsInsideBounds(x: number, y: number, b: SelectionBound) {
-    return  b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
+    return b.x <= x && x <= b.x + b.width && b.y <= y && y <= b.y + b.height;
+  }
+
+  private createTextEditor(endX: number,endY: number,shape?: TextShape) {
+    if (this.textEditor) {
+      this.removeTextEditor();
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.wrap = "off";
+    textarea.value = shape ? shape.text : "";
+
+    const rect = this.canvas.getBoundingClientRect();
+
+    textarea.style.position = "absolute";
+    textarea.style.left = `${rect.left + window.scrollX + (endX + this.offsetX) * this.scale}px`;
+    textarea.style.top = `${rect.top + window.scrollY + (endY + this.offsetY) * this.scale}px`;
+
+    textarea.style.width = `${Math.max((shape?.width ?? 200) * this.scale, 100)}px`;
+    textarea.style.height = `${Math.max((shape?.height ?? 40) * this.scale, 30)}px`;
+
+    textarea.style.background = "transparent";
+    textarea.style.color = shape?.strokeColor ?? this.strokeColor;
+    textarea.style.outline = "1px dashed #3b82f6";
+    textarea.style.border = "none";
+    textarea.style.resize = "none";
+
+    textarea.style.whiteSpace = "pre";
+    textarea.style.overflowWrap = "normal";
+    textarea.style.wordBreak = "normal";
+    textarea.style.overflowX = "hidden";
+    textarea.style.overflowY = "hidden";
+    textarea.style.boxSizing = "border-box";
+
+    textarea.style.cursor = shape?.strokeColor ?? this.strokeColor;
+
+    textarea.style.fontSize = `${(shape?.fontSize ?? this.fontSize) * this.scale}px`;
+    textarea.style.fontStyle = shape?.fontStyle ?? "normal";
+    textarea.style.fontWeight = shape?.fontWeight ?? "normal";
+    textarea.style.textAlign = shape?.textAlign ?? "left";
+    textarea.style.fontFamily = shape?.fontFamily === "serif"? "serif": shape?.fontFamily === "mono"? "monospace": shape?.fontFamily === "sans"? "sans-serif": this.fontFamily === "serif"? "serif": this.fontFamily === "mono"? "monospace": "sans-serif";
+
+    textarea.style.lineHeight = "1.2";
+    textarea.style.padding = "0";
+    textarea.style.zIndex = this.getNextZIndex().toString();
+
+    document.body.appendChild(textarea);
+
+    this.textEditor = textarea;
+
+    this.updateTextEditorSize();
+
+    requestAnimationFrame(() => {
+      const length = textarea.value.length;
+      textarea.setSelectionRange(length, length);
+
+      textarea.focus();
+    });
+
+    textarea.addEventListener("input", () => {
+      this.handleTextEditorInput();
+    });
+
+    textarea.addEventListener("keydown", (e) => {
+      if (e.key == "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        this.finishTextEditing();
+      }
+
+      if (e.key == "Escape") {
+        e.preventDefault();
+        this.cancelTextEditing();
+      }
+    });
+  }
+
+  private updateTextEditorSize(){
+    if(!this.textEditor)return;
+
+    const textarea = this.textEditor;
+
+    textarea.style.width = "1px";
+
+    textarea.style.width = `${Math.max(textarea.scrollWidth,20*this.scale)}px`;
+    textarea.style.height = `${Math.max(textarea.scrollHeight,20*this.scale)}px`;
+  }
+
+  private handleTextEditorInput() {
+    if (!this.textEditor) return;
+
+    const textarea = this.textEditor;
+    const text = this.textEditor.value;
+
+    let previewShape: TextShape;
+
+    if (this.editingTextShapeId) {
+      const original = this.findShape(this.editingTextShapeId);
+
+      if (!original || original.type !== "text") return;
+
+      previewShape = structuredClone(original);
+
+      previewShape.text = text;
+
+      previewShape.fontSize = this.fontSize;
+      previewShape.fontFamily = this.fontFamily;
+      previewShape.fontWeight = this.fontWeight;
+      previewShape.fontStyle = this.fontStyle;
+      previewShape.textAlign = this.textAlign;
+      previewShape.strokeColor = this.strokeColor;
+
+      if(previewShape.textAutoResize !== false){
+      const bounds = this.getTextBound(previewShape);
+
+      previewShape.width = bounds.width;
+      previewShape.height = bounds.height;
+
+      textarea.style.width = `${Math.max(bounds.width * this.scale + 4, 20 *this.scale)}px`;
+      textarea.style.height = `${Math.max(bounds.height * this.scale + 4, 20 * this.scale)}px`;
+
+      }else{
+
+      previewShape.height = this.getWrappedTextHeight(previewShape);
+
+      textarea.style.width = `${Math.max(previewShape.width * this.scale + 4, 20 *this.scale)}px`;
+      textarea.style.height = `${Math.max(previewShape.height * this.scale + 4, 20 * this.scale)}px`;
+
+      }
+
+    } else {
+
+      if(!this.textPreviewShapeId){
+        this.textPreviewShapeId = crypto.randomUUID();
+      }
+
+      previewShape = {
+        id: this.textPreviewShapeId,
+        type: "text",
+
+        x: this.textEditorX,
+        y: this.textEditorY,
+
+        width: Math.max(20, this.textEditor.scrollWidth / this.scale),
+        height: Math.max(20, this.textEditor.scrollHeight / this.scale),
+
+        text,
+
+        fontSize: this.fontSize,
+        fontFamily: this.fontFamily,
+        fontWeight: this.fontWeight,
+        fontStyle: this.fontStyle,
+        textAlign: this.textAlign,
+
+        ...this.getCurrentStyling(),
+      };
+
+      const bounds = this.getTextBound(previewShape);
+
+      previewShape.width = bounds.width;
+      previewShape.height = bounds.height;
+
+      textarea.style.width = `${Math.max(bounds.width * this.scale + 4, 20 * this.scale)}px`;
+
+      textarea.style.height = `${Math.max(bounds.height * this.scale + 4, 30)}px`;
+
+      this.textPreviewShapeId = previewShape.id;
+    }
+
+    this.previewshapes.set("self",previewShape);
+    this.needsRender = true;
+
+    const now = performance.now();
+
+    if(now - this.lastPreviewSent >= this.PREVIEW_INTERVAL && this.socket.readyState == WebSocket.OPEN){
+      this.lastPreviewSent = now;
+
+      this.socket.send(JSON.stringify({
+        type:"shape:preview",
+        roomId: this.roomId ,
+        shape: previewShape
+      }));
+    }
+  }
+
+  private editTextShape(shape: TextShape) {
+    this.editingTextShapeId = shape.id;
+
+    this.fontSize = shape.fontSize;
+    this.fontFamily = shape.fontFamily;
+    this.fontWeight = shape.fontWeight;
+    this.fontStyle = shape.fontStyle;
+    this.textAlign = shape.textAlign;
+    this.strokeColor = shape.strokeColor;
+
+    this.selectedShapeId = shape.id;
+    this.groupSelection = null;
+    this.selectionRect = null;
+    this.groupSelection = null;
+
+    this.createTextEditor(shape.x, shape.y, shape);
+    this.broadcastSelection(true);
+
+    this.needsRender = true;
+  }
+
+  private finishTextEditing() {
+    if (!this.textEditor) return;
+
+    const textarea = this.textEditor;
+    const text = textarea.value;
+
+    if (!text.trim()) {
+
+      if(this.editingTextShapeId){
+        const idx = this.existingShapes.findIndex(s => s.id === this.editingTextShapeId);
+        if(idx != -1){
+          const deletedShape = structuredClone(this.existingShapes[idx]);
+          this.existingShapes.splice(idx,1);
+
+          this.undoStack.push({
+            type:"delete",
+            shape:deletedShape
+          });
+          this.redoStack = [];
+
+          if(this.socket.readyState == WebSocket.OPEN){
+            this.socket.send(JSON.stringify({
+              type:"shape:delete",
+              roomId: this.roomId,
+              shapeId: deletedShape.id
+            }));
+          }
+        }
+      }
+
+      this.previewshapes.delete("self");
+      this.textPreviewShapeId = null;
+      this.removeTextEditor();
+      this.needsRender = true;
+      return;
+    }
+
+    this.handleTextEditorInput();
+
+    const preview = this.previewshapes.get("self");
+    if(!preview || preview.type !== "text"){
+      this.removeTextEditor();
+      return;
+    }
+
+    if (this.socket.readyState === WebSocket.OPEN) {
+      this.lastPreviewSent = performance.now();
+
+      this.socket.send(JSON.stringify({
+        type: "shape:preview",
+        roomId: this.roomId,
+        shape: preview,
+      }));
+    }
+
+    if (this.editingTextShapeId) {
+      const shape = this.findShape(this.editingTextShapeId);
+
+      if (shape && shape.type == "text") {
+        const before = structuredClone(shape);
+
+        Object.assign(shape,structuredClone(preview));
+
+        this.undoStack.push({
+          type: "update",
+          before: before,
+          after: structuredClone(shape),
+        });
+
+        this.redoStack = [];
+
+        if (this.socket.readyState === WebSocket.OPEN) {
+          this.socket.send(
+            JSON.stringify({
+              type: "shape:update",
+              roomId: this.roomId,
+              shape,
+            }),
+          );
+        }
+      }
+    }
+    else{
+      const shape = structuredClone(preview);
+
+      this.addShape(shape);
+
+      this.undoStack.push({
+        type: "add",
+        shape: structuredClone(shape),
+      });
+
+      this.redoStack = [];
+
+      if (this.socket.readyState == WebSocket.OPEN) {
+        this.socket.send(
+          JSON.stringify({
+            type: "shape:add",
+            roomId: this.roomId,
+            shape,
+          }),
+        );
+      }
+    }
+
+    this.previewshapes.delete("self");
+    this.textPreviewShapeId = null;
+    this.removeTextEditor();
+    this.broadcastSelection(false);
+    this.needsRender = true;
+  }
+
+  private getTextBound(shape: TextShape){
+    const family = shape.fontFamily === "serif"? "serif": shape.fontFamily === "mono"? "monospace" : "sans-serif";
+
+    this.ctx.save();
+
+    this.ctx.font = `${shape.fontStyle} ${shape.fontWeight} ${shape.fontSize}px ${family}`;
+
+    const lines = shape.text.split("\n");
+    const lineHeight = shape.fontSize * 1.2;
+
+    let maxWidth = 0;
+
+    for (const line of lines) {
+      const width = this.ctx.measureText(line || " ").width;
+      maxWidth = Math.max(maxWidth, width);
+    }
+
+    this.ctx.restore();
+
+    return {
+      width: Math.max(20, maxWidth),
+      height: Math.max(lineHeight, lines.length * lineHeight),
+    };
+  }
+
+  private getWrappedTextLines(shape: TextShape):string[]{
+     const family = shape.fontFamily === "serif" ? "serif" : shape.fontFamily === "mono" ? "monospace" : "sans-serif";
+
+     this.ctx.save();
+     this.ctx.font = `${shape.fontStyle} ${shape.fontWeight} ${shape.fontSize}px ${family}`;
+
+     const result: string[] = [];
+
+     const paragraphs = shape.text.split("\n");
+
+     for(const paragraph of paragraphs){
+      if(paragraph.length == 0){
+        result.push("");
+        continue;
+      }
+
+      const words = paragraph.split(" ");
+
+      let line = "";
+
+      for(const word of words){
+        const testline = line.length > 0 ? `${line} ${word}` : `${word}`;
+
+        const width = this.ctx.measureText(testline).width;
+
+        if(width > shape.width && line.length > 0){
+          result.push(line);
+          line = word;
+        }
+        else {
+          line = testline;
+        }
+      }
+
+      result.push(line);
+     }
+
+     this.ctx.restore();
+     return result;
+  }
+
+  private getWrappedTextHeight(shape: TextShape):number{
+    const lines = this.getWrappedTextLines(shape);
+
+    const lineHeight = shape.fontSize * 1.2;
+
+    return Math.max(lineHeight,lines.length * lineHeight);
+  }
+
+  private removeTextEditor() {
+    if (this.textEditor) {
+      this.textEditor.remove();
+    }
+    this.textEditor = null;
+    this.editingTextShapeId = null;
+    this.textPreviewShapeId = null;
+  }
+
+  private cancelTextEditing() {
+    this.broadcastSelection();
+    this.previewshapes.delete("self");
+    this.removeTextEditor();
+    this.needsRender = true;
   }
 
   mouseDownHandler = (e: MouseEvent) => {
+    if(this.textEditor){
+      if(e.target == this.canvas){
+        this.finishTextEditing();
+      }
+      return;
+    }
     if (this.selectedTool === "hand") {
       this.isPanning = true;
       this.canvas.style.cursor = "grabbing";
@@ -1575,7 +2243,7 @@ export class Game {
 
     if (this.groupSelection) {
       if (this.pointsInsideBounds(x, y, this.groupSelection.bounds)) {
-        this.initialGroupShapes = [...this.groupSelection.shapeIds].map((id) => (this.findShape(id))).filter(shape => shape !== undefined).map(shape => structuredClone(shape));
+        this.initialGroupShapes = [...this.groupSelection.shapeIds].map((id) => this.findShape(id)).filter((shape) => shape !== undefined).map((shape) => structuredClone(shape));
 
         this.interaction = "groupMove";
         this.dragStart = { x, y };
@@ -1592,31 +2260,38 @@ export class Game {
     if (this.selectedTool === "select") {
       let shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
 
-      this.initialShape = shape? structuredClone(shape): null;
+      this.initialShape = shape ? structuredClone(shape) : null;
 
-      const local = shape ? this.getLocalPoint(shape,x,y): null;
+      const local = shape ? this.getLocalPoint(shape, x, y) : null;
 
       const resizeShape = shape && local? this.isOnResizeHandle(shape, local.x, local.y) : null;
-      const rotateShape = shape && local? this.isOnRotationHandle(shape, local.x, local.y) : null;
+      const rotateShape = shape && local ? this.isOnRotationHandle(shape, local.x, local.y) : null;
 
       if (resizeShape) {
         this.interaction = "resizing";
         this.resizeHandle = resizeShape;
+        if(shape?.type == "text"){
+          this.textResizeMode = e.shiftKey? "wrap" : "scale";
+          if(!this.hasSeenTextResizeBehaviour){
+            this.hasSeenTextResizeBehaviour = true;
+            this.showMsgListener?.(true);
+          }
+        }
         this.broadcastSelection(true);
         return;
       }
 
-      if(rotateShape && shape){
+      if (rotateShape && shape) {
         this.interaction = "rotating";
         this.canvas.style.cursor = "grabbing";
 
         const boundings = this.getShapeBounds(shape);
 
-        const cx = (boundings?.left! +boundings?.right! )/2;
-        const cy = (boundings?.bottom! + boundings?.top! )/2;
-        
+        const cx = (boundings?.left! + boundings?.right!) / 2;
+        const cy = (boundings?.bottom! + boundings?.top!) / 2;
+
         this.initialRotation = shape.rotation ?? 0;
-        this.rotationStartAngle = Math.atan2(y-cy,x-cx);
+        this.rotationStartAngle = Math.atan2(y - cy, x - cx);
         this.broadcastSelection(true);
         return;
       }
@@ -1627,9 +2302,9 @@ export class Game {
         this.shapeSelection(null);
         this.interaction = "marquee";
 
-        this.marqueeStart = { x: x, y: y};
+        this.marqueeStart = { x: x, y: y };
 
-        this.selectionRect = {x, y, width: 0, height: 0};
+        this.selectionRect = { x, y, width: 0, height: 0 };
         return;
       }
 
@@ -1637,6 +2312,7 @@ export class Game {
 
       this.interaction = "moving";
       this.dragStart = { x, y };
+      this.hasMoved = false;
 
       this.broadcastSelection(true);
 
@@ -1720,9 +2396,16 @@ export class Game {
           ...this.getCurrentStyling(),
         };
         break;
+
+      case "text":
+        {
+          this.textEditorX = x;
+          this.textEditorY = y;
+        }
+        break;
     }
 
-    if (this.currentShape){
+    if (this.currentShape) {
       this.previewshapes.set("self", this.currentShape);
       this.broadcastSelection(true);
     }
@@ -1763,28 +2446,31 @@ export class Game {
 
       this.selectionRect = null;
       this.selectedShapeId = null;
+      this.canShowTextProperties?.(false);
       this.interaction = "idle";
       this.needsRender = true;
       return;
     }
 
-    if(this.interaction === "groupMove"){
-      const afterShapes = [...this.groupSelection!.shapeIds].map(id => this.findShape(id)).filter(shape => shape !== undefined).map(shape => structuredClone(shape));
+    if (this.interaction === "groupMove") {
+      const afterShapes = [...this.groupSelection!.shapeIds].map((id) => this.findShape(id)).filter((shape) => shape !== undefined).map((shape) => structuredClone(shape));
 
       this.undoStack.push({
         type: "group-update",
         before: this.initialGroupShapes!,
-        after: afterShapes
+        after: afterShapes,
       });
 
       this.redoStack = [];
 
-      if(this.socket.readyState == WebSocket.OPEN && afterShapes.length){
-        this.socket.send(JSON.stringify({
-          type: "shapes:update",
-          roomId: this.roomId,
-          shapes: afterShapes
-        }));
+      if (this.socket.readyState == WebSocket.OPEN && afterShapes.length) {
+        this.socket.send(
+          JSON.stringify({
+            type: "shapes:update",
+            roomId: this.roomId,
+            shapes: afterShapes,
+          }),
+        );
       }
 
       this.initialGroupShapes = null;
@@ -1795,16 +2481,28 @@ export class Game {
     if (this.interaction === "moving" || this.interaction === "resizing" || this.interaction == "rotating") {
       const shape = this.findShape(this.selectedShapeId!);
 
-      if (this.initialShape && shape) {
+      if(!shape){
+        this.interaction = "idle";
+        return;
+      }
+
+      if(this.interaction === "moving" && !this.hasMoved){
+        this.interaction = "idle";
+        this.resizeHandle = null;
+        this.canvas.style.cursor = "default";
+        return;
+      }
+
+      if (this.initialShape) {
         this.undoStack.push({
           type: "update",
           before: this.initialShape!,
           after: structuredClone(shape)!,
         });
+        this.redoStack = [];
       }
-      this.redoStack = [];
 
-      if (shape && this.socket.readyState == WebSocket.OPEN) {
+      if (this.socket.readyState == WebSocket.OPEN) {
         this.socket.send(
           JSON.stringify({
             type: "shape:update",
@@ -1817,6 +2515,12 @@ export class Game {
       this.interaction = "idle";
       this.resizeHandle = null;
       this.canvas.style.cursor = "default";
+      this.broadcastSelection(true);
+      return;
+    }
+
+    if (this.selectedTool == "text") {
+      this.createTextEditor(this.textEditorX, this.textEditorY);
       this.broadcastSelection(true);
       return;
     }
@@ -1852,6 +2556,7 @@ export class Game {
       this.currentShape = null;
       this.interaction = "idle";
       this.selectedShapeId = null;
+      this.canShowTextProperties?.(false);
     }
   };
 
@@ -1888,21 +2593,21 @@ export class Game {
       }
     }
 
-    if (this.selectedTool !== "pencil") {
+    if (this.selectedTool !== "pencil" && this.selectedTool !== "text") {
       endX = this.snap(endX);
       endY = this.snap(endY);
     }
 
-    if(this.interaction === "groupMove"){
-      if(this.groupSelection?.bounds){
+    if (this.interaction === "groupMove") {
+      if (this.groupSelection?.bounds) {
         this.canvas.style.cursor = "move";
 
         const dx = endX - this.dragStart.x;
         const dy = endY - this.dragStart.y;
 
-        for(const id of this.groupSelection?.shapeIds){
+        for (const id of this.groupSelection?.shapeIds) {
           const shape = this.findShape(id)!;
-          this.moveSelectedShape(shape,dx, dy);
+          this.moveSelectedShape(shape, dx, dy);
         }
 
         this.dragStart = { x: endX, y: endY };
@@ -1929,12 +2634,11 @@ export class Game {
       if (!shape) {
         this.canvas.style.cursor = "default";
       } else {
-        const points = this.getLocalPoint(shape,endX,endY);
+        const points = this.getLocalPoint(shape, endX, endY);
         const handle = this.isOnResizeHandle(shape, points.x, points.y);
-        const onRotationHandle = this.isOnRotationHandle(shape,points.x,points.y);
+        const onRotationHandle = this.isOnRotationHandle(shape, points.x, points.y);
 
-        if(onRotationHandle)
-          this.canvas.style.cursor = "grab";
+        if (onRotationHandle) this.canvas.style.cursor = "grab";
         else if (handle === "tl" || handle === "br")
           this.canvas.style.cursor = "nwse-resize";
         else if (handle === "tr" || handle === "bl")
@@ -1947,8 +2651,8 @@ export class Game {
       const shape = this.findShape(this.selectedShapeId!);
 
       if (!shape) return;
-      const local = this.getLocalPoint(shape,endX,endY);
-      const handle = this.isOnResizeHandle(shape,local.x, local.y);
+      const local = this.getLocalPoint(shape, endX, endY);
+      const handle = this.isOnResizeHandle(shape, local.x, local.y);
 
       if (handle) {
         if (handle === "br" || handle === "tl")
@@ -2040,7 +2744,6 @@ export class Game {
         shape.centerY = (newTop + newBottom) / 2;
         shape.radX = (newRight - newLeft) / 2;
         shape.radY = (newBottom - newTop) / 2;
-
       } else if (shape.type === "diamond") {
         const right = shape.left + shape.width;
         const bottom = shape.top + shape.height;
@@ -2193,15 +2896,114 @@ export class Game {
           p.x = newLeft + nx * newWidth;
           p.y = newTop + ny * newHeight;
         }
+      } else if (shape.type === "text") {
+        const original = this.initialShape;
+
+        if(!original || original.type !== "text")return;
+
+        if(this.textResizeMode == "scale"){
+          const oWidth = original.width;
+          const oHeight = original.height;
+
+          let newLeft = original.x;
+          let newTop = original.y;
+          let newRight = original.x + original.width;
+          let newBottom = original.y + original.height;
+
+          switch(this.resizeHandle){
+            case "tl":
+              newLeft = local.x;
+              newTop = local.y;
+              break;
+            case "tr":
+              newRight = local.x;
+              newTop = local.y;
+              break;
+            case "bl":
+              newLeft = local.x;
+              newBottom = local.y;
+              break;
+            case "br":
+              newRight = local.x;
+              newBottom = local.y;
+              break;
+          }
+
+          const newWidth = Math.max(20,Math.abs(newRight - newLeft));
+          const newHeight = Math.max(20,Math.abs(newBottom - newTop));
+
+          const scaleX = newWidth / Math.max(oWidth,1);
+          const scaleY = newHeight / Math.max(oHeight,1);
+
+          const scale = Math.max(scaleX,scaleY);
+
+          shape.width = Math.max(20, oWidth * scale);
+          shape.height = Math.max(20, oHeight * scale);
+
+          shape.fontSize = Math.max(4, original.fontSize * scale);
+
+          switch(this.resizeHandle){
+            case "tl":
+              shape.x = original.x + original.width - shape.width;
+              shape.y = original.y + original.height - shape.height;
+              break;
+            case "tr":
+              shape.x = original.x;
+              shape.y = original.y + original.height - shape.height;
+              break;
+            case "bl":
+              shape.x = original.x + original.width - shape.width;
+              shape.y = original.y;
+              break;
+            case "br":
+              shape.x = original.x;
+              shape.y = original.y;
+              break;
+          }
+          shape.textAutoResize = true;
+        }
+        else{
+        const right = original.x + original.width;
+        const bottom = original.y + original.height;
+
+        switch (this.resizeHandle) {
+          case "br":
+            shape.x = original.x;
+            shape.y = original.y;
+            shape.width = Math.max(20, local.x - original.x);
+            break;
+
+          case "bl":
+            shape.y = original.y;
+            shape.x = Math.min(local.x,right - 20);
+            shape.width = right - shape.x;
+            break;
+
+          case "tr":
+            shape.x = original.x;
+            shape.y = Math.min(local.y,bottom - 20);
+            shape.width = Math.max(20, local.x - original.x);
+            break;
+
+          case "tl":
+            shape.y = Math.min(local.y, bottom - 20);
+            shape.x = Math.max(local.x, right - 20);
+            shape.width = right - shape.x;
+            break;
+          }
+          shape.fontSize = original.fontSize;
+          shape.height = this.getWrappedTextHeight(shape);
+          shape.textAutoResize = false;
+        }     
       }
 
       this.needsRender = true;
       return;
     }
 
-    if(this.interaction == "rotating"){
+    if (this.interaction == "rotating") {
       const shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
-      if(!shape)return;
+      if (!shape) return;
 
       const bounds = this.getShapeBounds(shape);
 
@@ -2222,10 +3024,14 @@ export class Game {
       const dx = endX - this.dragStart.x;
       const dy = endY - this.dragStart.y;
 
-      const shape = this.selectedShapeId? this.findShape(this.selectedShapeId): null;
+      const shape = this.selectedShapeId? this.findShape(this.selectedShapeId) : null;
       if (!shape) return;
 
-      this.moveSelectedShape(shape,dx, dy);
+      if(dx!=0 || dy!=0){
+        this.hasMoved = true;
+      }
+
+      this.moveSelectedShape(shape, dx, dy);
 
       this.dragStart = {
         x: endX,

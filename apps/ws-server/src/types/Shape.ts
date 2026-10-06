@@ -69,4 +69,18 @@ interface Arrow extends BaseShape{
       sY: number;
 }
 
-export type Shape = Rect | Ellipse | Diamond | Line | Pencil | Arrow;
+interface Text extends BaseShape{
+    type: "text",
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    text: string;
+    fontSize: number;
+    fontFamily: "sans" | "serif" | "mono";
+    fontWeight: "normal" | "bold";
+    fontStyle: "normal" | "italic";
+    textAlign: "left" | "center" | "right"
+  };
+
+export type Shape = Rect | Ellipse | Diamond | Line | Pencil | Arrow | Text;
