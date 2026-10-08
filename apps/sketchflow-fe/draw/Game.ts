@@ -71,6 +71,7 @@ export class Game {
   private clipboardShapes: Shape[] | null = null;
   private onlineUsers?: (usersOnline: number) => void;
   private toastListener?: (toast: Toast) => void;
+  private isOwnerListener?: (valid: boolean) => void;
   private users: User[] = [];
   private usersListener?: (user: User[]) => void;
   private showGrid: boolean = true;
@@ -98,6 +99,15 @@ export class Game {
   private showMsgListener?: (show: boolean) => void;
 
   private canShowTextProperties? :(show: boolean) => void;
+  private textEditorOutsideClickHandler: ((e: MouseEvent) => void) | null = null;
+
+  private laserPoints: {x:number, y:number, time:number}[] = []; 
+  private isLaserDrawing = false;
+  private remoteLaserPoints = new Map<string,{points: { x: number; y: number; time: number }[], color: string}>();
+
+  private readonly LASER_MAX_POINTS = 80;
+  private readonly LASER_MIN_DISTANCE = 1.5;
+  private readonly LASER_DURATION = 650;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -190,7 +200,14 @@ export class Game {
       this.interaction = "idle";
       this.needsRender = true;
     }
-    this.canvas.style.cursor = tool == "hand" ? "grab" : tool == "select" ? "default" : "crosshair";
+    if(tool == "laser"){
+      this.isLaserDrawing = false;
+      this.setLaserCursor();
+    }
+    else{
+      this.canvas.style.cursor = tool == "hand" ? "grab" : tool == "select" ? "default" : "crosshair";
+    }
+    this.laserPoints = [];
     this.shapeSelection?.(null);
   }
 
@@ -199,11 +216,18 @@ export class Game {
     this.needsRender = true;
   }
 
+  setIsOwnerListener( callback: (yes: boolean) => void) {
+    this.isOwnerListener = callback;
+  }
+
   setStrokeColor(newStrokeColor: string) {
     this.strokeColor = newStrokeColor;
     if(this.textEditor){
       this.handleTextEditorInput();
       return;
+    }
+    if(this.selectedTool == "laser"){
+      this.setLaserCursor();
     }
   }
 
@@ -250,6 +274,52 @@ export class Game {
         this.updateSelectedShape({fontFamily,fontSize,fontStyle,fontWeight,textAlign});
       }
     }
+  }
+
+  private setLaserCursor() { 
+    const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+      <path
+        d="M9.8 6.8
+          L22 18.9
+          Q22.7 19.6 22 20.3
+          L19.2 23
+          Q18.5 23.7 17.8 23
+          L6.2 11.4
+          Z"
+        fill="white"
+        stroke="black"
+        stroke-width="1.5"
+        stroke-linejoin="round"
+      />
+
+      <path
+        d="M6.2 11.4
+          Q5.65 9.6 5.35 7.35
+          Q5.2 6.25 6.25 6.45
+          Q8.45 6.8 10.15 7.25
+          L9.8 6.8
+          Z"
+        fill="${this.strokeColor}"
+        stroke="black"
+        stroke-width="1.15"
+        stroke-linejoin="round"
+      />
+
+      <path
+        d="M7 7.05
+          Q7.8 7.2 9.15 7.55"
+        fill="none"
+        stroke="white"
+        stroke-width="0.65"
+        stroke-linecap="round"
+        opacity="0.45"
+      />
+    </svg>
+  `;
+
+  this.canvas.style.cursor =
+    `url("data:image/svg+xml,${encodeURIComponent(svg)}") 2 2, crosshair`;
   }
 
   private getCurrentStyling(): ShapeStyle {
@@ -505,6 +575,19 @@ export class Game {
     this.needsRender = true;
   }
 
+  resetCanvas(){
+    if(this.textEditor){
+      this.removeTextEditor();
+    }
+    if(this.socket.readyState == WebSocket.OPEN){
+      this.socket.send(JSON.stringify({
+        type:"chats:reset",
+        roomId: this.roomId
+      }))
+    }
+    console.log("reset req sent to backend");
+  }
+
   private isPointOnRect(x: number,y: number,shape: Extract<Shape, { type: "rect" }>): boolean {
     const padding = 5 / this.scale;
 
@@ -637,7 +720,14 @@ export class Game {
   }
 
   private render = () => {
-    if (this.needsRender) {
+    const remoteLasers = [...this.remoteLaserPoints.values()].some(value => value.points.length > 0);
+
+    if(this.selectedTool == "laser" || remoteLasers){
+      this.clearCanvas();
+      if(this.selectedTool == "laser")
+        this.drawLaser();
+    }
+    else if (this.needsRender) {
       this.clearCanvas();
       this.needsRender = false;
     }
@@ -683,6 +773,11 @@ export class Game {
 
     for (const [userId, cursor] of this.cursors.entries()) {
       const remoteSelections = this.remoteSelections.get(userId);
+
+      const remoteLaser = this.remoteLaserPoints.get(userId);
+
+      if(remoteLaser)
+        this.drawLaser(remoteLaser.points, remoteLaser.color);
 
       this.drawCursor(cursor, remoteSelections?.editing);
 
@@ -730,10 +825,7 @@ export class Game {
     }
   }
 
-  private drawGroupSelection(
-    bounds?: SelectionBound,
-    color: string = "#3b82f6",
-  ) {
+  private drawGroupSelection(bounds?: SelectionBound,color: string = "#3b82f6",) {
     const b = bounds ?? this.groupSelection?.bounds;
     if (!b) return;
 
@@ -787,6 +879,63 @@ export class Game {
 
       this.ctx.restore();
     }
+  }
+
+  private drawLaserTrail(points: { x: number; y: number; time: number }[],color: string) {
+    if (points.length < 2) return;
+
+    const now = performance.now();
+
+    const activePoints = points.filter((point) =>now - point.time < this.LASER_DURATION);
+
+    points.length = 0;
+    points.push(...activePoints);
+
+    if (points.length < 2) return;
+
+    this.ctx.save();
+
+    this.ctx.lineCap = "round";
+    this.ctx.lineJoin = "round";
+
+    for (let i = 1; i < points.length; i++) {
+      const previous = points[i - 1];
+      const current = points[i];
+
+      const age = now - current.time;
+
+      const progress = Math.max(0,Math.min(1,age / this.LASER_DURATION));
+
+      const opacity = Math.pow(1 - progress,2);
+
+      if (opacity <= 0) continue;
+
+      const next = points[i + 1] ?? current;
+
+      const midX = (current.x + next.x) * 0.5;
+
+      const midY = (current.y + next.y) * 0.5;
+
+      const width = (1.6 + 2.4 * Math.sqrt(opacity)) / this.scale;
+
+      this.ctx.globalAlpha = opacity;
+      this.ctx.strokeStyle = color;
+      this.ctx.lineWidth = width;
+
+      this.ctx.beginPath();
+
+      this.ctx.moveTo(previous.x,previous.y);
+
+      this.ctx.quadraticCurveTo(current.x,current.y,midX,midY);
+
+      this.ctx.stroke();
+    }
+    this.ctx.restore();
+  }
+
+  private drawLaser(pts: {x: number, y: number, time: number}[] = this.laserPoints, color: string = this.strokeColor) {
+    if (pts.length < 2)return;
+    this.drawLaserTrail(pts,color);
   }
 
   private drawCursor(cursor: Cursor, editing: boolean = false) {
@@ -1094,8 +1243,11 @@ export class Game {
       const received = JSON.parse(e.data);
       switch (received.type) {
         case "room_snapshot":
+          console.log("ROOM SNAPSHOT RECEIVED:", received);
+          console.log("IS OWNER FROM SERVER:", received.isOwner);
           this.existingShapes = received.shapes;
           this.sortByZIndex();
+          this.isOwnerListener?.(received.isOwner);
           this.needsRender = true;
           break;
         case "user:joined":
@@ -1124,6 +1276,7 @@ export class Game {
         case "user:left":
           this.cursors.delete(received.userId);
           this.remoteSelections.delete(received.userId);
+          this.remoteLaserPoints.delete(received.userId);
           this.users = this.users.filter((u) => u.id !== received.userId);
           this.usersListener?.([...this.users]);
           this.onlineUsers?.(this.users.length);
@@ -1138,6 +1291,35 @@ export class Game {
           if (existingCursor) {
             ((existingCursor.x = received.x), (existingCursor.y = received.y));
           }
+
+          if(received.laser){
+            let remoteLaser = this.remoteLaserPoints.get(received.userId);
+
+            if(!remoteLaser){
+              remoteLaser = {
+                points: [],
+                color: received.laserColor ?? "#ff0000"
+              }
+              this.remoteLaserPoints.set(received.userId,remoteLaser);
+            }
+
+            if(received.laserColor){
+              remoteLaser.color = received.laserColor;
+            }
+
+            const now = performance.now();
+            const pts = remoteLaser.points;
+            const last = pts[pts.length - 1];
+
+            if(!last || Math.hypot(received.x - last.x,received.y - last.y) >= this.LASER_MIN_DISTANCE){
+              pts.push({x: received.x, y: received.y, time: now});
+            }
+
+            if(pts.length > this.LASER_MAX_POINTS){
+              pts.splice(0,pts.length - this.LASER_MAX_POINTS);
+            }
+          }
+
           this.needsRender = true;
           break;
         case "selection:update":
@@ -1284,6 +1466,10 @@ export class Game {
 
       case "t":
         this.setSelectedTool("text");
+        break;
+
+      case "z":
+        this.setSelectedTool("laser");
         break;
     }
   };
@@ -1890,6 +2076,22 @@ export class Game {
         this.cancelTextEditing();
       }
     });
+
+    // console.log("4 before outside listener");
+
+    // this.textEditorOutsideClickHandler = (e: MouseEvent) => {
+    //   if (!this.textEditor) return;
+
+    //   console.log("clicking outside of the textbox",".......",e.target);
+
+    //   if (e.target === this.textEditor) return;
+
+    //   this.finishTextEditing();
+    // };
+
+    // document.addEventListener("mousedown",this.textEditorOutsideClickHandler);
+
+    // console.log("5 outside listener added");
   }
 
   private updateTextEditorSize(){
@@ -2021,7 +2223,7 @@ export class Game {
     this.needsRender = true;
   }
 
-  private finishTextEditing() {
+  finishTextEditing() {
     if (!this.textEditor) return;
 
     const textarea = this.textEditor;
@@ -2208,6 +2410,10 @@ export class Game {
   }
 
   private removeTextEditor() {
+    if(this.textEditorOutsideClickHandler){
+      document.removeEventListener("mousedown",this.textEditorOutsideClickHandler);
+      this.textEditorOutsideClickHandler = null;
+    }
     if (this.textEditor) {
       this.textEditor.remove();
     }
@@ -2240,6 +2446,15 @@ export class Game {
     }
 
     let { x, y } = this.getMousePos(e);
+
+    if (this.selectedTool === "laser") {
+      this.isLaserDrawing = true;
+
+      this.laserPoints = [{x,y,time: performance.now()}];
+
+      this.needsRender = true;
+      return;
+    }
 
     if (this.groupSelection) {
       if (this.pointsInsideBounds(x, y, this.groupSelection.bounds)) {
@@ -2420,6 +2635,12 @@ export class Game {
       this.canvas.style.cursor = "grab";
       return;
     }
+
+    if (this.selectedTool === "laser") {
+      this.isLaserDrawing = false;
+      return;
+    }
+
     this.broadcastSelection();
 
     if (this.interaction === "marquee") {
@@ -2588,6 +2809,8 @@ export class Game {
             roomId: this.roomId,
             x: endX,
             y: endY,
+            laser: this.selectedTool === "laser" && this.isLaserDrawing,
+            laserColor: this.strokeColor
           }),
         );
       }
@@ -2596,6 +2819,25 @@ export class Game {
     if (this.selectedTool !== "pencil" && this.selectedTool !== "text") {
       endX = this.snap(endX);
       endY = this.snap(endY);
+    }
+
+    if (this.selectedTool === "laser") {
+      if(!this.isLaserDrawing)return;
+
+      const now = performance.now();
+
+      const last = this.laserPoints[this.laserPoints.length - 1];
+
+      if (!last ||Math.hypot(endX - last.x, endY - last.y) >= this.LASER_MIN_DISTANCE) {
+        this.laserPoints.push({x: endX,y: endY,time: now,});
+      }
+
+      if (this.laserPoints.length > this.LASER_MAX_POINTS) {
+        this.laserPoints.splice(0,this.laserPoints.length - this.LASER_MAX_POINTS);
+      }
+
+      this.needsRender = true;
+      return;
     }
 
     if (this.interaction === "groupMove") {

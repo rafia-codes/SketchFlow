@@ -14,7 +14,7 @@ export default function MessageModal({title = "Info 💡",message,onClose,button
       />
 
       <div className="relative w-[320px] rounded-2xl border border-border bg-card p-5 shadow-2xl">
-        <h3 className="text-base font-semibold text-foreground text-white/90">
+        <h3 className="text-base text-center font-semibold text-foreground text-white/90">
           {title}
         </h3>
 

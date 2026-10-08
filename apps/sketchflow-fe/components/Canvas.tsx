@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { Hand,Circle,Diamond,Pencil,Minus,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic} from "lucide-react";
+import { Hand,Circle,Diamond,Pencil,Minus,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic, Maximize, PaintRoller, MonitorPlay} from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 import { Toast,User } from "@/draw/types";
 import MessageModal from "./MessageModal";
+import ConfirmModal from "./ConfirmModal";
 
-export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select" | "text"; //panning
+export type Tool = | "rect" | "ellipse" | "diamond" | "pencil" | "line" | "hand" | "lock" | "arrow" | "select" | "text" | "laser"; //panning
 
 const STROKE_COLORS = ["#1f2937","#ef4444","#f59e0b","#10b981","#3b82f6","#8b5cf6",];
 const BG_COLORS = ["#fee2e2","#fef3c7","#dcfce7","#dbeafe","#ede9fe","#fce7f3",];
@@ -13,13 +14,7 @@ const FILL_STYLES = ["hachure", "cross-hatch", "solid"] as const;
 const STROKE_WIDTHS = [1, 2, 4] as const;
 const STROKE_STYLES = ["solid", "dashed", "dotted"] as const;
 
-export function Canvas({
-  roomId,
-  socket,
-}: {
-  roomId: string;
-  socket: WebSocket;
-}) {
+export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
   const canvasref = useRef<HTMLCanvasElement>(null);
   const [game, setGame] = useState<Game>();
   const [shapeSelected, setShapeSelected] = useState(false);
@@ -54,6 +49,10 @@ export function Canvas({
   const [textAlign,setTextAlign] = useState<"left"|"center"|"right">("left");
 
   const [canShowTextProperty,setCanShowTextProperty] = useState<boolean>(false);
+
+  const [isOwner,setIsOwner] = useState<boolean>(false);
+  const [displayOwnerMsg,setdisplayOwnerMsg] = useState(false);
+  const [displayResetConfirm, setDisplayResetConfirm] = useState(false);
 
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
@@ -113,6 +112,10 @@ export function Canvas({
 
     return () => clearTimeout(timer);
   }, [game]);
+
+  useEffect(()=>{
+    game?.setIsOwnerListener(setIsOwner);
+  },[game]);
 
   useEffect(()=>{
     game?.setStrokeColor(strokeColor);
@@ -231,6 +234,23 @@ export function Canvas({
     game?.deleteSelectedShape();
   };
 
+  const onResetCanvas = () => {
+    game?.finishTextEditing();
+    if(!isOwner){
+      setdisplayOwnerMsg(true);
+      return;
+    }
+    setDisplayResetConfirm(true);
+  }
+
+  const onPresentation = () => {
+
+  }
+
+  const onFitToScreen = () => {
+
+  }
+
   return (
     <div
       style={{
@@ -245,11 +265,10 @@ export function Canvas({
         height={window.innerHeight}
       ></canvas>
       <Topbar
+        strokeColor={strokeColor}
         setSelectedTool={setSelectedTool}
         shapeSelected={shapeSelected}
         selectedTool={selectedTool}
-        onZoomIn={onZoomIn}
-        onZoomOut={onZoomOut}
         onRedo={onRedo}
         onUndo={onUndo}
         isLocked={isLocked}
@@ -259,6 +278,7 @@ export function Canvas({
         onDuplicate={onDuplicate}
         onToggle={onToggle}
         onSnapToggle={onSnapToggle}
+        onResetCanvas={onResetCanvas}
       />
 
         <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -428,16 +448,11 @@ export function Canvas({
           )}
         </aside>
 
-      <div className="absolute top-6 right-4 flex gap-3">
-
-        {/* <div className="flex items-center gap-2 text-gray-300">
-          <div className="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-sm font-medium">{onlineUsers} Online</span>
-        </div> */}
+      <div className="fixed top-5 right-5 z-40 flex items-center gap-2">
 
         <button
           onClick={() => setShowUsers((s) => !s)}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl border-white/35 text-sm font-medium bg-card text-foreground border border-border shadow-sm hover:border-primary/60 hover:-translate-y-0.5 transition-all"
+          className="inline-flex items-center cursor-pointer gap-2 px-3.5 py-2 rounded-xl border-white/35 text-sm font-medium bg-card text-foreground border border-border shadow-sm hover:border-primary/60 hover:-translate-y-0.5 transition-all"
         >
           <span className="relative flex h-2 w-2">
             <span className="absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 animate-ping" />
@@ -445,6 +460,32 @@ export function Canvas({
           </span>
           <Users className="w-4 h-4 text-muted-foreground text-white" />
           <span className="tabular-nums text-white">{onlineUsers} online</span>
+        </button>
+
+        <button
+          onClick={onPresentation}
+          title="Presentation mode"
+          aria-label="Presentation mode"
+          className="
+            group
+            inline-flex h-10 w-10
+            items-center justify-center
+            rounded-xl
+            bg-violet-500
+            text-white
+            shadow-md
+            transition-all duration-200
+            hover:-translate-y-0.5
+            hover:bg-violet-600
+            hover:shadow-lg
+            active:translate-y-0
+            cursor-pointer
+          ">
+          <MonitorPlay
+            size={18}
+            strokeWidth={1.9}
+            className="transition-transform duration-200 group-hover:scale-105"
+          />
         </button>
 
         <button
@@ -489,40 +530,107 @@ export function Canvas({
         </div>
       )}
 
+      <div
+          className="zoom-controls"
+          style={{
+            cursor: "pointer",
+            position: "fixed",
+            bottom: 12,
+            left: 20,
+            display: "flex",
+            alignItems: "center",
+            background: "rgba(255,255,255,0.85)",
+            backdropFilter: "blur(12px)",
+            padding: "4px 6px",
+            borderRadius: "14px",
+            boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+            zIndex: 50,
+            gap: "8px",
+          }}
+        >
+          <ToolButton
+            onClick={onZoomOut}
+            title="Zoom out"
+            icon={<ZoomOut size={15} />}
+          />
+
+          <span
+            style={{
+              width: "42px",
+              textAlign: "center",
+              fontSize: "12px",
+              fontWeight: 500,
+              lineHeight: "30px",
+              color: "#000",
+              userSelect: "none",
+            }}
+          >
+            {Math.round(scale * 100)}%
+          </span>
+
+          <ToolButton
+            onClick={onZoomIn}
+            title="Zoom in"
+            icon={<ZoomIn size={15} />}
+          />
+
+          <Divider/>
+
+          <ToolButton
+            title="Fit to screen"
+            icon={<Maximize size={15} />}
+          />
+        </div>
+
       {showResizeMsg && (
         <MessageModal title="Resize Text Info 💡" onClose={()=>setShowResizeMsg(false)} message="Drag to scale your text. Hold Shift while dragging to wrap the text."></MessageModal>
       )}
+
+      {displayOwnerMsg && (
+        <MessageModal  onClose={()=>setdisplayOwnerMsg(false)} message="Only the owner of the room can reset the canvas."></MessageModal>
+      )}
+
+      {displayResetConfirm && (
+        <ConfirmModal open={displayResetConfirm} title="Reset Canvas?" description="This will permanently remove all shapes from this canvas. This action cannot be undone." 
+        confirmWord="CONFIRM" confirmLabel="Reset Canvas" tone="danger"
+        onConfirm={() => {
+          setDisplayResetConfirm(false);
+          game?.resetCanvas();
+        }}
+        onCancel={() => setDisplayResetConfirm(false)} />
+      )
+      }
     </div>
   );
 }
 
 function Topbar({
+  strokeColor,
   selectedTool,
   setSelectedTool,
   shapeSelected,
-  onZoomIn,
-  onZoomOut,
   onUndo,
   onRedo,
   onDuplicate,
   onDelete,
   onToggle,
   onSnapToggle,
+  onResetCanvas,
   isSnapToGrid,
   isLocked,
   setIsLocked,
 }: {
+  strokeColor: string;
   selectedTool: Tool;
   setSelectedTool: (s: Tool) => void;
   shapeSelected: boolean;
-  onZoomIn?: () => void;
-  onZoomOut?: () => void;
   onUndo?: () => void;
   onRedo?: () => void;
   onDuplicate?: () => void;
   onDelete?: () => void;
   onToggle?: () => void;
   onSnapToggle?: () => void;
+  onResetCanvas?: () => void;
   isSnapToGrid: boolean;
   isLocked: boolean;
   setIsLocked: (s: boolean) => void;
@@ -533,7 +641,7 @@ function Topbar({
         cursor: "pointer",
         position: "fixed",
         top: 20,
-        left: "50%",
+        left: "calc(50% - 50px)",
         transform: "translateX(-50%)",
         background: "rgba(255,255,255,0.85)",
         backdropFilter: "blur(12px)",
@@ -555,6 +663,13 @@ function Topbar({
       />
 
       <Divider />
+
+      <ToolButton
+        active={selectedTool === "laser"}
+        title="Laser Pointer (Z)"
+        onClick={() => setSelectedTool("laser")}
+        icon={<LaserPointer color={strokeColor} />}
+      />
 
       <ToolButton
         active={selectedTool === "select"}
@@ -615,19 +730,6 @@ function Topbar({
       <Divider />
 
       <ToolButton
-        onClick={onZoomOut}
-        disabled={false}
-        icon={<ZoomOut size={18} />}
-      />
-      <ToolButton
-        onClick={onZoomIn}
-        disabled={false}
-        icon={<ZoomIn size={18} />}
-      />
-
-      <Divider />
-
-      <ToolButton
         onClick={onUndo}
         title="Undo (Ctrl+Z)"
         disabled={false}
@@ -664,6 +766,14 @@ function Topbar({
         title="Delete (Del)"
         disabled={!shapeSelected}
         icon={<Trash2 size={18} />}
+      />
+
+      <Divider/>
+
+      <ToolButton
+        onClick={onResetCanvas}
+        title="Clear Canvas"
+        icon={<PaintRoller size={18} />}
       />
     </div>
   );
@@ -1046,7 +1156,6 @@ function TextProperties({
         </div>
       </div>
 
-      {/* Alignment */}
       <div>
         <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
           Align
@@ -1090,7 +1199,6 @@ function TextProperties({
         </div>
       </div>
 
-      {/* Opacity */}
       <div>
         <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
           Opacity
@@ -1109,5 +1217,41 @@ function TextProperties({
       </div>
 
     </div>
+  );
+}
+
+function LaserPointer({ color = "#ef4444", className = "h-6 w-6" }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+
+      <path
+        d="M8.5 2.8
+           C5.5 2.2, 3.8 4.2, 5.2 5.8
+           C6.3 7.1, 9.2 6.4, 9.4 8.2
+           C9.6 10.1, 7.1 10.8, 4.8 9.8"
+        stroke={color}
+        strokeWidth="1.9"
+        fill="none"
+        strokeLinecap="round"
+      />
+
+      <path d="M10.5 7 L22.5 19 L19 22.5 L7.5 11 Z" />
+
+      <line x1="19.5" y1="15.5" x2="15.5" y2="19.5" />
+
+      <path
+        d="M7.5 11 L10.5 7 L7 5.8 L5.8 7.2 Z"
+        fill={color}
+        stroke={color}
+      />
+    </svg>
   );
 }

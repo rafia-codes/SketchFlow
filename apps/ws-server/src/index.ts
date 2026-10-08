@@ -211,7 +211,7 @@ wss.on("connection", (ws, request) => {
             rooms.get(parsedData.roomId)?.set(ws, client);
             client.rooms.add(parsedData.roomId);
 
-            let chats = [];
+            let chats = [], isOwner = false;
 
             chats = await prismaClient.chat.findMany({
               where: {
@@ -221,12 +221,23 @@ wss.on("connection", (ws, request) => {
                 id: "asc",
               },
             });
-            console.log(chats);
+            
+            const room = await prismaClient.room.findUnique({
+              where:{
+                id: Number(parsedData.roomId),
+              },
+              select:{
+                adminId : true
+              }
+            });
+
+            if(client.userId == room.adminId)isOwner = true;
 
             ws.send(
               JSON.stringify({
                 type: "room_snapshot",
                 shapes: chats.map((chat: any) => JSON.parse(chat.message)),
+                isOwner
               }),
             );
 
@@ -275,8 +286,10 @@ wss.on("connection", (ws, request) => {
           const roomId = parsedData.roomId;
           const x = parsedData.x;
           const y = parsedData.y;
+          const laser = parsedData.laser ?? false;
+          const laserColor = parsedData.laserColor;
 
-          broadcastToRoom(ws,"cursor:update",roomId,{ x: x, y: y});
+          broadcastToRoom(ws,"cursor:update",roomId,{ x, y, laser, laserColor} as any);
         }
         break;
 
@@ -923,7 +936,54 @@ wss.on("connection", (ws, request) => {
             break;
           }catch{
             console.log('Error in layer update');
+        }
+        case "chats:reset":{
+          console.log("got reset req");
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+
+          const room = await prismaClient.room.findUnique({
+            where:{
+              id : Number(roomId)
+            },
+            select:{
+              adminId: true
+            }
+          });
+
+          if(!room)return;
+
+          const user = getClient(ws);
+
+          if(user?.userId === room.adminId){
+            await prismaClient.chat.deleteMany({
+              where:{
+                roomId: Number(roomId)
+              }
+            })
           }
+
+          const chats = await prismaClient.chat.findMany({
+            where: {
+              roomId: Number(roomId),
+            },
+          });
+
+          ws.send(JSON.stringify({
+            type: "room_snapshot",
+            shapes: chats.map((chat: any) => JSON.parse(chat.message)),
+            isOwner: true,
+          }));
+
+          broadcastToRoom(ws,"room_snapshot",roomId,chats);
+
+          console.log("reset done");
+        }break;
       }
     } catch (error) {
       console.log(480);

@@ -62,7 +62,9 @@ export type Message = {
     type : "cursor:update",
     roomId : string,
     x : string,
-    y : string
+    y : string,
+    laser: boolean,
+    laserColor? : string
 } | {
     type : "layer:update",
     roomId : string,
@@ -72,6 +74,9 @@ export type Message = {
     roomId : string,
     shapeIds : string[],
     editing: boolean   
+} | {
+    type : "chats:reset",
+    roomId : string
 }
 
 export type CursorPreview = {
