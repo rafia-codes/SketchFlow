@@ -148,3 +148,12 @@ export type User = {
 }
 
 export type TextShape = Extract<Shape,{type:"text"}>;
+
+export type PresentationModalConfig = {
+  title: string;
+  message: string;
+  buttonText: string;
+  onAction: () => void;
+  dismissible?: boolean;
+  buttonVariant?: string
+};

@@ -3,13 +3,14 @@ import jwt, { Jwt, JwtPayload } from "jsonwebtoken";
 import { JWT_SECRET } from "@repo/backend-common/config";
 import { prismaClient } from "@repo/db/client";
 import { Client } from "./types/Client.js";
-import { CursorPreview, Message } from "./types/Message.js";
+import { Camera, CursorPreview, Message } from "./types/Message.js";
 import { Shape } from "./types/Shape.js";
 
 const wss = new WebSocketServer({ port: 8080 });
 
 const clients = new Map<WebSocket, Client>();
 const rooms = new Map<string, Map<WebSocket, Client>>();
+const presentations = new Map<string,{userId: string, presenter: WebSocket;camera: {offsetX: number, offsetY: number, scale: number}}>();
 
 function checkClient(token: string): string | null {
   try {
@@ -27,13 +28,12 @@ function getClient(ws: WebSocket): Client | undefined {
   return clients.get(ws);
 }
 
-function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[] | string[] | {shapeIds: string[], editing: boolean}) {
+function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape | CursorPreview | {name:string} | Shape[] | string[] | {shapeIds: string[], editing: boolean} | {presenterId:string , camera?:Camera} ) {
   if (!rooms.has(roomId)) return;
 
   const client = clients.get(ws);
 
   if(type == "cursor:update"){
-    console.log('sending cursor updates');
     rooms.get(roomId)?.forEach((user,userws)=>{
       if(ws !== userws && userws.readyState == WebSocket.OPEN){
         userws.send(JSON.stringify({
@@ -112,6 +112,41 @@ function broadcastToRoom(ws: WebSocket,type: string,roomId: string,data: Shape |
           userId: client?.userId,
           name: client?.name,
           color: client?.color
+        }))
+      }
+    })
+    return;
+  }
+
+  if (type === "presentation:start" || type === "presentation:camera") {
+    const payload = data as {
+      presenterId: string;
+      camera?: Camera;
+    };
+
+    rooms.get(roomId)?.forEach((_user, userws) => {
+      if (ws !== userws && userws.readyState === WebSocket.OPEN) {
+        userws.send(
+          JSON.stringify({
+            type,
+            roomId,
+            presenterId: payload.presenterId,
+            ...(payload.camera ? { camera: payload.camera } : {}),
+          })
+        );
+      }
+    });
+
+    return;
+  }
+
+  if(type === "presentation:stop"){
+    console.log('reached inside broadcast');
+    rooms.get(roomId)?.forEach((_user,userws)=>{
+      if(ws !== userws && userws.readyState === WebSocket.OPEN){
+        userws.send(JSON.stringify({
+          type,
+          roomId
         }))
       }
     })
@@ -242,6 +277,18 @@ wss.on("connection", (ws, request) => {
             );
 
             broadcastToRoom(ws,"user:joined",parsedData.roomId,{name: client.name});//those who are already there
+
+            const activePresentation = presentations.get(parsedData.roomId);
+
+            if(activePresentation && ws.readyState == WebSocket.OPEN){
+               ws.send(JSON.stringify({
+                type: "presentation:start",
+                roomId: parsedData.roomId,
+                presenterId: activePresentation.userId,
+                isPresenter: false,
+                camera: activePresentation.camera,
+              }));
+            }
 
             rooms.get(parsedData.roomId)?.forEach((user,userws)=>{//for those who have joined later n getting info of the ones who have already joined
               if(ws !== userws && userws.readyState == WebSocket.OPEN){
@@ -984,6 +1031,120 @@ wss.on("connection", (ws, request) => {
 
           console.log("reset done");
         }break;
+
+        case "presentation:start":{
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+
+          if(presentations.has(roomId)){
+            if(ws.readyState === WebSocket.OPEN){
+              ws.send(JSON.stringify({
+                type:"presentation:error",
+                roomId,
+                reason:"presentation_already_active"
+              }));
+            }
+            return;
+          };
+
+          const {offsetX,offsetY,scale} = parsedData;
+
+          if(!isFinite(offsetX) || !isFinite(offsetY) || !isFinite(scale) || scale <= 0)return;
+
+          const userId = getClient(ws)?.userId;
+          if(!userId)return;
+
+          const camera = {offsetX,offsetY,scale};
+
+          presentations.set(roomId,{userId,presenter: ws,camera});
+
+          ws.send(JSON.stringify({
+            type: "presentation:started",
+            roomId,
+            presenterId: userId,
+            camera,
+          }));
+          console.log('sab log aa jao presenattion me');
+          broadcastToRoom(ws,"presentation:start",roomId,{presenterId: userId, camera});
+          break;
+        }
+        case "presentation:camera":{
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+
+          const active = presentations.get(roomId);
+
+          if(!active || active.presenter !== ws )return;
+
+          const {offsetX, offsetY, scale} = parsedData;
+
+          if(!isFinite(offsetX) || !isFinite(offsetY) || !isFinite(scale) || scale <= 0)return;
+
+          const camera = {offsetX,offsetY,scale};
+
+          active.camera = camera;
+
+          broadcastToRoom(ws,"presentation:camera",roomId,{presenterId: active.userId, camera});
+          break;
+        }
+        case "presentation:join":{
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+
+          const active = presentations.get(roomId);
+
+          if(!active){
+            ws.send(JSON.stringify({
+              type:"presentation:unavailable",
+              roomId
+            }));
+            return;
+          }
+
+          ws.send(JSON.stringify({
+            type:"presentation:state",
+            roomId,
+            presenterId: active.userId,
+            camera: active.camera
+          }));
+
+          break;
+        }
+        case "presentation:stop":{
+          if (!client.authenticated) return;
+
+          if (!rooms.has(parsedData.roomId)) return;
+
+          if (!rooms.get(parsedData.roomId)?.has(ws)) return;
+
+          const roomId = parsedData.roomId;
+          const active = presentations.get(roomId);
+
+          if(!active || active.presenter !== ws)return;
+
+          presentations.delete(roomId);
+
+          ws.send(JSON.stringify({type:"presentation:stopped",roomId,presenterId:active.userId}));
+          console.log('aaya h server k pass end karne ko presentation');
+          broadcastToRoom(ws,"presentation:stop",roomId,{presenterId: active.userId});
+
+          break;
+        }
       }
     } catch (error) {
       console.log(480);
@@ -996,6 +1157,13 @@ wss.on("connection", (ws, request) => {
     if (existingrooms)
       for (let roomId of existingrooms) {
         rooms.get(roomId)?.delete(ws);
+        const activePresentation = presentations.get(roomId);
+
+        if (activePresentation?.presenter === ws) {
+          presentations.delete(roomId);
+
+          broadcastToRoom(ws,"presentation:stop",roomId,{ presenterId: activePresentation.userId });
+        }
 
         if (rooms.get(roomId)?.size == 0) rooms.delete(roomId);
         else {

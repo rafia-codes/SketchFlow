@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
-import { Hand,Circle,Diamond,Pencil,Minus,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic, Maximize, PaintRoller, MonitorPlay} from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { Hand,Circle,Diamond,Pencil,Minus,MousePointer2,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic, Maximize, PaintRoller, MonitorPlay} from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
-import { Toast,User } from "@/draw/types";
+import { Toast,User,PresentationModalConfig } from "@/draw/types";
 import MessageModal from "./MessageModal";
 import ConfirmModal from "./ConfirmModal";
 
@@ -54,6 +54,24 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
   const [displayOwnerMsg,setdisplayOwnerMsg] = useState(false);
   const [displayResetConfirm, setDisplayResetConfirm] = useState(false);
 
+  const [presentationModal, setPresentationModal] = useState<PresentationModalConfig | null>(null);
+
+  const [isPresentationMode, setIsPresentationMode] = useState(false);
+
+  const [presentationRole, setPresentationRole] = useState<"presenter" | "viewer" | null>(null);
+
+  const [viewerMode, setViewerMode] = useState<"follow" | "explore">("follow");
+
+  const [presentationInviteOpen, setPresentationInviteOpen] = useState(false);
+
+  useEffect(() => {
+    if (canvasref.current) {
+      const g = new Game(canvasref.current, roomId, socket);
+      setGame(g);
+      return () => g.destroy();
+    }
+  }, [roomId, socket]);
+
   useEffect(() => {
     game?.setSelectedTool(selectedTool);
     game?.setSelectionListener(setShapeSelected);
@@ -73,16 +91,10 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
   },[game,isLocked]);
 
   useEffect(()=>{
-    game?.setScale(scale); 
-  },[game,scale]);
-
-  useEffect(() => {
-    if (canvasref.current) {
-      const g = new Game(canvasref.current, roomId, socket);
-      setGame(g);
-      return () => g.destroy();
-    }
-  }, [roomId, socket]);
+    game?.setScaleChangeListener((newScale: number) => {
+      setScale(newScale);
+    }); 
+  },[game]);
 
   useEffect(() => {
     const handleresize = () => {
@@ -171,12 +183,14 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
 
   const onZoomIn = () => {
     if (scale >= 1.5) return;
-    setScale((prev) => Number((prev + 0.1).toFixed(1)));
+    const newScale = Number((scale + 0.1).toFixed(1));
+    game?.setScale(newScale);
   };
 
   const onZoomOut = () => {
     if (scale <= 0.5) return;
-    setScale((prev) => Number((prev - 0.1).toFixed(1)));
+    const newScale = Number((scale - 0.1).toFixed(1));
+    game?.setScale(newScale);
   };
 
   const onUndo = () => {
@@ -243,13 +257,79 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
     setDisplayResetConfirm(true);
   }
 
-  const onPresentation = () => {
-
-  }
-
   const onFitToScreen = () => {
-
+    game?.fitToScreen();
   }
+  
+  const onPresentation = () => {
+    setPresentationModal({
+      title: "Start Presentation?",
+      message:
+        "Starting a presentation makes the whiteboard read-only while you present. You can pan, zoom, point, and use the laser pointer, but you cannot edit the board.",
+      buttonText: "Start Presentation",
+      onAction: () => {
+        game?.fitToScreen();
+        game?.startPresentation();
+
+        setPresentationModal(null);
+        setPresentationRole("presenter");
+        setIsPresentationMode(true);
+        setSelectedTool("hand");
+      },
+    });
+  };
+
+  useEffect(()=>{
+    game?.setPresentationInviteListener(setPresentationInviteOpen);
+  },[game,presentationInviteOpen]);
+
+  const onJoinPresentation = () => {
+    setPresentationInviteOpen(false);
+    setIsPresentationMode(true);
+    setViewerMode("follow");
+    setPresentationRole("viewer");
+    game?.joinPresentation();
+  };
+
+  const onRequestEndPresentation = () => { // kaam ka
+    setPresentationModal({
+      title: "End Presentation?",
+      message:
+        "Are you sure you want to end the presentation for everyone in this room?",
+      buttonText: "End Presentation",
+      onAction: () => {
+        setPresentationModal(null);
+        game?.endPresentation();
+      },
+    });
+  };
+
+  useEffect(() => {
+    game?.setViewerFollowMode(presentationRole === "viewer" && viewerMode === "follow");
+  }, [game, presentationRole, viewerMode]);
+
+  useEffect(() => {
+    game?.setPresentationEndedListener((wasViewer: boolean) => {
+      setIsPresentationMode(false);
+      setPresentationRole(null);
+      setPresentationInviteOpen(false);
+      setViewerMode("follow");
+      setSelectedTool("hand");
+
+      if (wasViewer) {
+      setPresentationModal({
+        title: "Presentation Ended",
+        message: "The presenter has ended the presentation. You can now use the whiteboard normally.",
+        buttonText: "Continue",
+        onAction: () => {
+          game?.resetCanvas();
+          setPresentationModal(null)
+        },
+        buttonVariant: "purple"
+      });
+      }
+    });
+  }, [game]);
 
   return (
     <div
@@ -264,7 +344,7 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         width={window.innerWidth}
         height={window.innerHeight}
       ></canvas>
-      <Topbar
+      {!isPresentationMode && <Topbar
         strokeColor={strokeColor}
         setSelectedTool={setSelectedTool}
         shapeSelected={shapeSelected}
@@ -279,176 +359,176 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         onToggle={onToggle}
         onSnapToggle={onSnapToggle}
         onResetCanvas={onResetCanvas}
-      />
+      />}
 
-        <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
-        {selectedTool === "text" || canShowTextProperty ? (
-            <TextProperties
-                strokeColor={strokeColor}
-                setStrokeColor={setStrokeColor}
+      {!isPresentationMode && <aside className="bg-black absolute top-1/2 left-5 -translate-y-1/2 w-60 rounded-2xl border border-border bg-card/95 backdrop-blur p-4 shadow-2xl shadow-black/40 ring-1 ring-white/5 space-y-4 max-h-[80vh] overflow-y-auto">
+      {selectedTool === "text" || canShowTextProperty ? (
+          <TextProperties
+              strokeColor={strokeColor}
+              setStrokeColor={setStrokeColor}
 
-                fontSize={fontSize}
-                setFontSize={setFontSize}
+              fontSize={fontSize}
+              setFontSize={setFontSize}
 
-                fontFamily={fontFamily}
-                setFontFamily={setFontFamily}
+              fontFamily={fontFamily}
+              setFontFamily={setFontFamily}
 
-                fontWeight={fontWeight}
-                setFontWeight={setFontWeight}
+              fontWeight={fontWeight}
+              setFontWeight={setFontWeight}
 
-                fontStyle={fontStyle}
-                setFontStyle={setFontStyle}
+              fontStyle={fontStyle}
+              setFontStyle={setFontStyle}
 
-                textAlign={textAlign}
-                setTextAlign={setTextAlign}
+              textAlign={textAlign}
+              setTextAlign={setTextAlign}
 
-                opacity={opacity}
-                setOpacity={setOpacity}
-              />
-          ) : (
-            <>
-          <SwatchRow
-            label="Stroke"
-            colors={STROKE_COLORS}
-            value={strokeColor}
-            onChange={setStrokeColor}
-          />
-          <SwatchRow
-            label="Background"
-            colors={BG_COLORS}
-            value={fillColor}
-            onChange={setFillColor}
-            allowTransparent
-          />
-          <SegRow
-            label="Fill Style"
-            options={FILL_STYLES}
-            value={fillStyle}
-            onChange={(v) =>
-              setFillStyle(v as "solid" | "cross-hatch" | "hachure")
-            }
-          />
-          <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
-              Stroke width
-            </p>
-            <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
-              {STROKE_WIDTHS.map((w) => (
-                <button
-                  key={w}
-                  onClick={() => setStrokeWidth(w)}
-                  aria-label={`${w}px`}
-                  className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
-                    strokeWidth === w
-                      ? "bg-gray-900 ring-1 ring-amber-600"
-                      : "hover:bg-muted/60"
-                  }`}
-                >
-                  <span
-                    className="w-8 rounded-full bg-white"
-                    style={{ height: w }}
-                  />
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
-              Stroke style
-            </p>
-            <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
-              {STROKE_STYLES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setStrokeStyle(s)}
-                  aria-label={s}
-                  className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
-                    strokeStyle === s
-                      ? "bg-muted ring-1 ring-amber-600"
-                      : "hover:bg-muted/60"
-                  }`}
-                >
-                  <svg width="32" height="8" viewBox="0 0 32 8">
-                    <line
-                      x1="2"
-                      y1="4"
-                      x2="30"
-                      y2="4"
-                      stroke="#fff"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeDasharray={
-                        s === "dashed"
-                          ? "6 4"
-                          : s === "dotted"
-                            ? "1 4"
-                            : undefined
-                      }
-                    />
-                  </svg>
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
-              Opacity
-            </p>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={opacity * 100}
-              onChange={(e) => setOpacity(Number(e.target.value) / 100)}
-              className="w-full accent-primary"
+              opacity={opacity}
+              setOpacity={setOpacity}
             />
-            <p className="text-right text-xs text-muted-foreground">
-              {Math.round(opacity * 100)}%
-            </p>
+        ) : (
+          <>
+        <SwatchRow
+          label="Stroke"
+          colors={STROKE_COLORS}
+          value={strokeColor}
+          onChange={setStrokeColor}
+        />
+        <SwatchRow
+          label="Background"
+          colors={BG_COLORS}
+          value={fillColor}
+          onChange={setFillColor}
+          allowTransparent
+        />
+        <SegRow
+          label="Fill Style"
+          options={FILL_STYLES}
+          value={fillStyle}
+          onChange={(v) =>
+            setFillStyle(v as "solid" | "cross-hatch" | "hachure")
+          }
+        />
+        <div>
+          <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+            Stroke width
+          </p>
+          <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+            {STROKE_WIDTHS.map((w) => (
+              <button
+                key={w}
+                onClick={() => setStrokeWidth(w)}
+                aria-label={`${w}px`}
+                className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
+                  strokeWidth === w
+                    ? "bg-gray-900 ring-1 ring-amber-600"
+                    : "hover:bg-muted/60"
+                }`}
+              >
+                <span
+                  className="w-8 rounded-full bg-white"
+                  style={{ height: w }}
+                />
+              </button>
+            ))}
           </div>
-
-          <div>
-            <p className="text-gray-300 text-xs font-medium mb-2">Layer</p>
-
-            <div className="grid grid-cols-4 gap-2">
+        </div>
+        <div>
+          <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+            Stroke style
+          </p>
+          <div className="flex gap-1 p-1 rounded-lg bg-black/40 border border-border/60">
+            {STROKE_STYLES.map((s) => (
               <button
-                onClick={() => game?.bringForward()}
-                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
-                title="Bring Forward"
+                key={s}
+                onClick={() => setStrokeStyle(s)}
+                aria-label={s}
+                className={`flex-1 h-9 rounded-md flex items-center justify-center transition-colors ${
+                  strokeStyle === s
+                    ? "bg-muted ring-1 ring-amber-600"
+                    : "hover:bg-muted/60"
+                }`}
               >
-                <MoveUp size={18} />
+                <svg width="32" height="8" viewBox="0 0 32 8">
+                  <line
+                    x1="2"
+                    y1="4"
+                    x2="30"
+                    y2="4"
+                    stroke="#fff"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeDasharray={
+                      s === "dashed"
+                        ? "6 4"
+                        : s === "dotted"
+                          ? "1 4"
+                          : undefined
+                    }
+                  />
+                </svg>
               </button>
-
-              <button
-                onClick={() => game?.sendBackward()}
-                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
-                title="Send Backward"
-              >
-                <MoveDown size={18} />
-              </button>
-
-              <button
-                onClick={() =>(console.log('clicked bring to front'), game?.bringToFront())}
-                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
-                title="Bring To Front"
-              >
-                <BringToFront size={18} />
-              </button>
-
-              <button
-                onClick={() => game?.sendToBack()}
-                className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
-                title="Send To Back"
-              >
-                <SendToBack size={18} />
-              </button>
-            </div>
+            ))}
           </div>
-          </>
-          )}
-        </aside>
+        </div>
+        <div>
+          <p className="text-gray-300 text-xs font-medium text-muted-foreground mb-2">
+            Opacity
+          </p>
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={opacity * 100}
+            onChange={(e) => setOpacity(Number(e.target.value) / 100)}
+            className="w-full accent-primary"
+          />
+          <p className="text-right text-xs text-muted-foreground">
+            {Math.round(opacity * 100)}%
+          </p>
+        </div>
 
-      <div className="fixed top-5 right-5 z-40 flex items-center gap-2">
+        <div>
+          <p className="text-gray-300 text-xs font-medium mb-2">Layer</p>
+
+          <div className="grid grid-cols-4 gap-2">
+            <button
+              onClick={() => game?.bringForward()}
+              className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+              title="Bring Forward"
+            >
+              <MoveUp size={18} />
+            </button>
+
+            <button
+              onClick={() => game?.sendBackward()}
+              className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+              title="Send Backward"
+            >
+              <MoveDown size={18} />
+            </button>
+
+            <button
+              onClick={() =>(console.log('clicked bring to front'), game?.bringToFront())}
+              className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+              title="Bring To Front"
+            >
+              <BringToFront size={18} />
+            </button>
+
+            <button
+              onClick={() => game?.sendToBack()}
+              className="cursor-pointer h-10 rounded-md bg-black/40 border border-border hover:bg-muted flex items-center justify-center"
+              title="Send To Back"
+            >
+              <SendToBack size={18} />
+            </button>
+          </div>
+        </div>
+        </>
+        )}
+      </aside>}
+
+      {!isPresentationMode && <div className="fixed top-5 right-5 z-40 flex items-center gap-2">
 
         <button
           onClick={() => setShowUsers((s) => !s)}
@@ -511,7 +591,225 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         >
           Leave
         </button>
-      </div>
+      </div>}
+
+      {isPresentationMode && presentationRole === "presenter" && (
+        <div className="fixed top-4 left-1/2 z-50 flex w-max max-w-[calc(100vw-16px)] -translate-x-1/2 flex-nowrap items-center gap-2 overflow-x-auto rounded-2xl border border-white/10 bg-neutral-900/95 px-3 py-2 text-white shadow-2xl backdrop-blur-xl">
+          <span className="flex shrink-0 items-center gap-2 px-2 text-xs font-semibold text-white/90">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" />
+            Presenting
+          </span>
+
+          <div className="h-6 w-px shrink-0 bg-white/15" />
+
+          <div className="flex shrink-0 items-center gap-1 rounded-xl bg-white/[0.07] p-1">
+            <button
+              onClick={() => setSelectedTool("hand")}
+              title="Pan canvas"
+              aria-label="Pan canvas"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                selectedTool === "hand"
+                  ? "bg-blue-600 text-white"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <Hand size={17} />
+            </button>
+
+            <button
+              onClick={() => setSelectedTool("select")}
+              title="Cursor"
+              aria-label="Cursor"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                selectedTool === "select"? "bg-blue-600 text-white": "text-white/75 hover:bg-white/10 hover:text-white"}`}>
+              <MousePointer size={17} />
+            </button>
+
+            <button
+              onClick={() => {
+                setSelectedTool("laser");
+                setStrokeColor("#ef4444");
+              }}
+              title="Laser pointer"
+              aria-label="Laser pointer"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition ${
+                selectedTool === "laser"? "bg-blue-600 text-white": "text-white/75 hover:bg-white/10 hover:text-white"}`}>
+              <LaserPointer
+                color={selectedTool === "laser" ? "#ffffff" : "#ef4444"}
+                className="h-4.25 w-4.25"
+              />
+            </button>
+          </div>
+
+          <div className="flex h-11 shrink-0 items-center gap-0.5 rounded-xl bg-white/[0.07] p-1">
+            <button
+              onClick={onZoomOut}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="flex h-9 w-8 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <ZoomOut size={16} />
+            </button>
+
+            <span className="min-w-11 px-1 text-center text-xs font-semibold tabular-nums">
+              {Math.round(scale * 100)}%
+            </span>
+
+            <button
+              onClick={onZoomIn}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="flex h-9 w-8 items-center justify-center rounded-lg text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              <ZoomIn size={16} />
+            </button>
+          </div>
+
+          <button
+            onClick={onFitToScreen}
+            title="Fit canvas to screen"
+            aria-label="Fit canvas to screen"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-white/80 transition hover:bg-white/10 hover:text-white"
+          >
+            <Maximize size={17} />
+          </button>
+
+          <div className="h-6 w-px shrink-0 bg-white/15" />
+
+          <button
+            onClick={onRequestEndPresentation}
+            title="End presentation for everyone"
+            aria-label="End presentation for everyone"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-red-600 px-3 text-xs font-semibold text-white transition hover:bg-red-500"
+          >
+            <MonitorPlay size={15} />
+            End
+          </button>
+
+          {/* Exit for presenter only */}
+          <button
+            onClick={onLeave}
+            title="Leave presentation"
+            aria-label="Leave presentation"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-red-500/10 px-3 text-xs font-semibold text-red-400 transition hover:bg-red-500 hover:text-white"
+          >
+            <ArrowRight size={15} />
+            Exit
+          </button>
+        </div>
+      )}
+
+      {isPresentationMode && presentationRole === "viewer" && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-nowrap items-center gap-1.5 w-max max-w-[calc(100vw-16px)] overflow-x-auto rounded-2xl border border-white/10 bg-neutral-900/95 px-2.5 py-2 text-white shadow-2xl backdrop-blur-xl">
+
+          <span className="flex shrink-0 items-center gap-2 px-2 text-xs font-semibold text-white/90">
+            {viewerMode === "follow" ? (
+              <Users size={15} className="text-sky-400" />
+            ) : (
+              <MousePointer size={15} className="text-sky-400" />
+            )}
+            {viewerMode === "follow" ? "Following presenter" : "Exploring"}
+          </span>
+
+          <button
+            onClick={() =>
+              setViewerMode(mode => mode === "follow" ? "explore" : "follow")
+            }
+            title={viewerMode === "follow" ? "Explore independently" : "Follow presenter"}
+            className={`flex h-9 shrink-0 items-center gap-1.5 rounded-xl px-3 text-xs font-medium transition cursor-pointer ${
+              viewerMode === "follow"? "bg-white/[0.07] text-white/85 hover:bg-white/10": "bg-sky-500/15 text-sky-300 hover:bg-sky-500/25"
+            }`}>
+            {viewerMode === "follow" ? (
+              <>
+                <MousePointer size={15} />
+                Explore
+              </>
+            ) : (
+              <>
+                <MonitorPlay size={15} />
+                Follow
+              </>
+            )}
+          </button>
+
+          <div className="flex shrink-0 items-center gap-1 rounded-xl bg-white/[0.07] p-1">
+            <button
+              onClick={() => setSelectedTool("hand")}
+              title="Pan canvas"
+              aria-label="Pan canvas"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition cursor-pointer ${
+                selectedTool === "hand"
+                  ? "bg-blue-600 text-white"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <Hand size={17} />
+            </button>
+
+            <button
+              onClick={() => setSelectedTool("select")}
+              title="Cursor"
+              aria-label="Cursor"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition cursor-pointer ${
+                selectedTool === "select"
+                  ? "bg-blue-600 text-white"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <MousePointer size={17} />
+            </button>
+
+            <button
+              onClick={() => setSelectedTool("laser")}
+              title="Laser pointer"
+              aria-label="Laser pointer"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg transition cursor-pointer ${
+                selectedTool === "laser"
+                  ? "bg-blue-600 text-white"
+                  : "text-white/75 hover:bg-white/10 hover:text-white"
+              }`}
+            >
+              <LaserPointer
+                color={selectedTool === "laser" ? "#ef4444" : "#ffffff"}
+                className="h-4.25 w-4.25"
+              />
+            </button>
+          </div>
+
+          <div className="flex shrink-0 items-center gap-0.5 rounded-xl bg-white/[0.07] p-1">
+            <button
+              onClick={onZoomOut}
+              title="Zoom out"
+              aria-label="Zoom out"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white cursor-pointer"
+            >
+              <ZoomOut size={16} />
+            </button>
+
+            <span className="min-w-11 px-1 text-center text-xs font-semibold tabular-nums">
+              {Math.round(scale * 100)}%
+            </span>
+
+            <button
+              onClick={onZoomIn}
+              title="Zoom in"
+              aria-label="Zoom in"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-white/80 hover:bg-white/10 hover:text-white cursor-pointer"
+            >
+              <ZoomIn size={16} />
+            </button>
+          </div>
+
+          <button
+            onClick={onLeave}
+            title="Leave presentation"
+            className="flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-red-500/10 px-3 text-xs font-semibold text-red-400 transition hover:bg-red-500 hover:text-white cursor-pointer"
+          >
+            <ArrowRight size={15} />
+            Exit
+          </button>
+        </div>
+      )}
 
       {showUsers && (
         <UsersPanel users={users} onClose={() => setShowUsers(false)} />
@@ -530,57 +828,58 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         </div>
       )}
 
-      <div
-          className="zoom-controls"
+      {!isPresentationMode && (<div
+        className="zoom-controls"
+        style={{
+          cursor: "pointer",
+          position: "fixed",
+          bottom: 12,
+          left: 20,
+          display: "flex",
+          alignItems: "center",
+          background: "rgba(255,255,255,0.85)",
+          backdropFilter: "blur(12px)",
+          padding: "4px 6px",
+          borderRadius: "14px",
+          boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+          zIndex: 50,
+          gap: "8px",
+        }}
+      >
+        <ToolButton
+          onClick={onZoomOut}
+          title="Zoom out"
+          icon={<ZoomOut size={15} />}
+        />
+
+        <span
           style={{
-            cursor: "pointer",
-            position: "fixed",
-            bottom: 12,
-            left: 20,
-            display: "flex",
-            alignItems: "center",
-            background: "rgba(255,255,255,0.85)",
-            backdropFilter: "blur(12px)",
-            padding: "4px 6px",
-            borderRadius: "14px",
-            boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
-            zIndex: 50,
-            gap: "8px",
+            width: "42px",
+            textAlign: "center",
+            fontSize: "12px",
+            fontWeight: 500,
+            lineHeight: "30px",
+            color: "#000",
+            userSelect: "none",
           }}
         >
-          <ToolButton
-            onClick={onZoomOut}
-            title="Zoom out"
-            icon={<ZoomOut size={15} />}
-          />
+          {Math.round(scale * 100)}%
+        </span>
 
-          <span
-            style={{
-              width: "42px",
-              textAlign: "center",
-              fontSize: "12px",
-              fontWeight: 500,
-              lineHeight: "30px",
-              color: "#000",
-              userSelect: "none",
-            }}
-          >
-            {Math.round(scale * 100)}%
-          </span>
+        <ToolButton
+          onClick={onZoomIn}
+          title="Zoom in"
+          icon={<ZoomIn size={15} />}
+        />
 
-          <ToolButton
-            onClick={onZoomIn}
-            title="Zoom in"
-            icon={<ZoomIn size={15} />}
-          />
+        <Divider/>
 
-          <Divider/>
-
-          <ToolButton
-            title="Fit to screen"
-            icon={<Maximize size={15} />}
-          />
-        </div>
+        <ToolButton
+          onClick={onFitToScreen}
+          title="Fit to screen"
+          icon={<Maximize size={15} />}
+        />
+      </div>)}
 
       {showResizeMsg && (
         <MessageModal title="Resize Text Info 💡" onClose={()=>setShowResizeMsg(false)} message="Drag to scale your text. Hold Shift while dragging to wrap the text."></MessageModal>
@@ -598,8 +897,30 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
           game?.resetCanvas();
         }}
         onCancel={() => setDisplayResetConfirm(false)} />
-      )
-      }
+      )}
+    
+      {presentationModal && (
+        <MessageModal
+          title={presentationModal.title}
+          message={presentationModal.message}
+          buttonText={presentationModal.buttonText}
+          onClose={() => setPresentationModal(null)}
+          onAction={presentationModal.onAction}
+          dismissible={presentationModal.dismissible ?? true}
+        />
+      )}
+
+      {presentationInviteOpen && !isPresentationMode && (
+        <MessageModal
+          title="Presentation Invitation"
+          message="Someone has started presenting the whiteboard. Would you like to join and follow their view?"
+          buttonText="Join Presentation"
+          onClose={() => setPresentationInviteOpen(false)}
+          onAction={onJoinPresentation}
+          buttonVariant="purple"
+        />
+      )}
+
     </div>
   );
 }

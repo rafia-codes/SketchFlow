@@ -74,6 +74,7 @@ export class Game {
   private isOwnerListener?: (valid: boolean) => void;
   private users: User[] = [];
   private usersListener?: (user: User[]) => void;
+  private onScaleChange?: (scale: number) => void;
   private showGrid: boolean = true;
   private rotationStartAngle = 0;
   private initialRotation = 0;
@@ -108,6 +109,25 @@ export class Game {
   private readonly LASER_MAX_POINTS = 80;
   private readonly LASER_MIN_DISTANCE = 1.5;
   private readonly LASER_DURATION = 650;
+
+  private isPresentationMode = false;
+  private isPresentationViewer = false;
+  private isFollowingPresenter = true;
+
+  private lastPresentationCameraSent = 0;
+  private readonly PRESENTATION_CAMERA_INTERVAL = 33;
+
+  private presentationInviteListener?: (isInvited : boolean) => void;
+  private presentationEndedListener?: (wasViewer: boolean) => void;
+  private presentationErrorListener?: (message: string) => void;
+
+  private presentationStartedListener?: (role: "presenter" | "viewer") => void;
+
+  private latestPresentationCamera: {
+    offsetX: number;
+    offsetY: number;
+    scale: number;
+  } | null = null;
 
   constructor(canvas: HTMLCanvasElement, roomId: string, socket: WebSocket) {
     this.canvas = canvas;
@@ -210,9 +230,137 @@ export class Game {
     this.laserPoints = [];
     this.shapeSelection?.(null);
   }
+  
+  startPresentation() {
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    console.log("start karo bc");
+    this.socket.send(JSON.stringify({
+      type: "presentation:start",
+      roomId: this.roomId,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      scale: this.scale,
+    }));
+  }
+
+  private sendPresentationCamera(force = false) {
+    if (!this.isPresentationMode ||this.isPresentationViewer ||this.socket.readyState !== WebSocket.OPEN)return;
+
+    const now = performance.now();
+
+    if (!force && now - this.lastPresentationCameraSent < this.PRESENTATION_CAMERA_INTERVAL) return;
+
+    this.lastPresentationCameraSent = now;
+
+    this.socket.send(JSON.stringify({
+      type: "presentation:camera",
+      roomId: this.roomId,
+      offsetX: this.offsetX,
+      offsetY: this.offsetY,
+      scale: this.scale,
+    }));
+  }
+
+  applyPresentationCamera(camera: {offsetX: number;offsetY: number;scale: number;}) {//working
+    this.latestPresentationCamera = camera;
+    console.log('inside applypresentation:',camera);
+    if (!this.isPresentationViewer || !this.isFollowingPresenter) return;
+
+    this.offsetX = camera.offsetX;
+    this.offsetY = camera.offsetY;
+    this.scale = camera.scale;
+
+    this.onScaleChange?.(this.scale);
+    this.needsRender = true;
+  }
+
+  setPresentationInviteListener(callback: (isInvited: boolean) => void) {
+    this.presentationInviteListener = callback;
+  }
+
+  setPresentationStartedListener(callback: (role:"presenter" | "viewer") => void) {
+    this.presentationStartedListener = callback;
+  }
+
+  setPresentationEndedListener(callback: (wasViewer: boolean) => void) {
+    this.presentationEndedListener = callback;
+  }
+
+  setPresentationErrorListener(callback: (message: string) => void) {
+    this.presentationErrorListener = callback;
+  }
+
+  joinPresentation(){//working
+    this.isPresentationViewer = true;
+    this.isPresentationMode = true;
+    this.isFollowingPresenter = true;
+    this.applyPresentationCamera(this.latestPresentationCamera!);
+    this.presentationStartedListener?.("viewer");
+    this.isPresentationMode = true;
+  }
+
+  setViewerFollowMode(follow: boolean) {
+    this.isFollowingPresenter = follow;
+
+    if (follow && this.latestPresentationCamera) {
+      this.applyPresentationCamera(this.latestPresentationCamera);
+    }
+  }
+
+  leavePresentation() {
+    this.isPresentationMode = false;
+    this.isPresentationViewer = false;
+    this.isFollowingPresenter = true;
+    this.isPanning = false;
+    this.latestPresentationCamera = null;
+    console.log('ending 316');
+    this.canvas.style.cursor = this.selectedTool === "hand" ? "grab" : "default";
+    this.needsRender = true;
+  }
+
+  endPresentation() {
+    if (this.isPresentationViewer) return;
+    console.log('ending 323');
+    if (this.socket.readyState !== WebSocket.OPEN) return;
+    this.socket.send(
+      JSON.stringify({
+        type: "presentation:stop",
+        roomId: this.roomId,
+      })
+    );
+    this.resetPresentationState();
+  }
+
+  private resetPresentationState() {
+    const wasViewer = this.isPresentationViewer;
+
+    this.isPresentationMode = false;
+    this.isPresentationViewer = false;
+    this.isFollowingPresenter = true;
+    this.latestPresentationCamera = null;
+    this.isPanning = false;
+
+    this.offsetX = 0;
+    this.offsetY = 0;
+    this.scale = 1;
+
+    this.onScaleChange?.(1);
+
+    this.canvas.style.cursor = this.selectedTool === "hand" ? "grab" : "default";
+
+    this.needsRender = true;
+    this.presentationEndedListener?.(wasViewer);
+  }
+
+  setScaleChangeListener(callback: (scale: number) => void){
+    this.onScaleChange = callback;
+  }
 
   setScale(newScale: number) {
+    if (!Number.isFinite(newScale) || newScale <= 0) return;
     this.scale = newScale;
+    this.onScaleChange?.(this.scale);
+    this.sendPresentationCamera();
     this.needsRender = true;
   }
 
@@ -415,7 +563,6 @@ export class Game {
           width: shape.width,
           height: shape.height,
         };
-        break;
     }
     return { left: 0, top: 0, width: 0, height: 0 };
   }
@@ -586,6 +733,57 @@ export class Game {
       }))
     }
     console.log("reset req sent to backend");
+  }
+
+  fitToScreen(){
+    if(this.existingShapes.length == 0){
+      this.scale = 1;
+      this.offsetX = 0;
+      this.offsetY = 0;
+      this.sendPresentationCamera();
+      this.needsRender = true;
+      return;
+    }
+
+    const PADDING = 80;
+
+    let left = Infinity;
+    let top = Infinity;
+    let right = -Infinity;
+    let bottom = -Infinity;
+
+    for(const shape of this.existingShapes){
+      const bounds = this.getShapeBounds(shape);
+
+      left = Math.min(left,bounds.left);
+      top = Math.min(top,bounds.top);
+      right = Math.max(right,bounds.right);
+      bottom = Math.max(bottom,bounds.bottom);
+    }
+
+    const contentWidth = Math.max(right - left, 1);
+    const contentHeight = Math.max(bottom - top, 1);
+
+    const availableWidth = this.canvas.width - PADDING * 2;
+    const availableHeight = this.canvas.height - PADDING * 2;
+
+    const scaleX = availableWidth / contentWidth;
+    const scaleY = availableHeight / contentHeight;
+
+    this.scale = Math.min(scaleX,scaleY);
+
+    this.scale = Math.min(this.scale,1.5);
+
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+
+    this.offsetX = this.canvas.width / (2 * this.scale) - centerX;
+    this.offsetY = this.canvas.height / (2 * this.scale) - centerY;
+
+    this.onScaleChange?.(this.scale);
+    this.sendPresentationCamera();
+
+    this.needsRender = true;
   }
 
   private isPointOnRect(x: number,y: number,shape: Extract<Shape, { type: "rect" }>): boolean {
@@ -938,14 +1136,48 @@ export class Game {
     this.drawLaserTrail(pts,color);
   }
 
+  // private drawCursor(cursor: Cursor, editing: boolean = false) {
+  //   this.ctx.save();
+
+  //   this.ctx.translate(cursor.x, cursor.y);
+  //   this.ctx.scale(this.scale, this.scale);
+
+  //   this.ctx.beginPath();
+  //   this.ctx.moveTo(0, 0); // tip
+  //   this.ctx.lineTo(2, 18);
+  //   this.ctx.lineTo(6, 12);
+  //   this.ctx.lineTo(14, 13);
+  //   this.ctx.closePath();
+
+  //   this.ctx.fillStyle = cursor.color ?? "white";
+  //   this.ctx.fill();
+
+  //   this.ctx.strokeStyle = "black";
+  //   this.ctx.lineWidth = 1;
+  //   this.ctx.stroke();
+
+  //   this.ctx.font = "12px sans-serif";
+  //   this.ctx.fillStyle = cursor.color ?? "white";
+  //   this.ctx.fillText(
+  //     (cursor.name ?? "Guest") + (editing ? " is editing..." : ""),
+  //     24,
+  //     24,
+  //   );
+
+  //   this.ctx.restore();
+  // }
+  
   private drawCursor(cursor: Cursor, editing: boolean = false) {
     this.ctx.save();
+    this.ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    this.ctx.translate(cursor.x, cursor.y);
-    this.ctx.scale(this.scale, this.scale);
+    const screenX = (cursor.x + this.offsetX) * this.scale;
+    const screenY = (cursor.y + this.offsetY) * this.scale;
+
+    this.ctx.translate(screenX, screenY);
 
     this.ctx.beginPath();
-    this.ctx.moveTo(0, 0); // tip
+    this.ctx.moveTo(0, 0);
     this.ctx.lineTo(2, 18);
     this.ctx.lineTo(6, 12);
     this.ctx.lineTo(14, 13);
@@ -960,11 +1192,7 @@ export class Game {
 
     this.ctx.font = "12px sans-serif";
     this.ctx.fillStyle = cursor.color ?? "white";
-    this.ctx.fillText(
-      (cursor.name ?? "Guest") + (editing ? " is editing..." : ""),
-      24,
-      24,
-    );
+    this.ctx.fillText((cursor.name ?? "Guest") + (editing ? " is editing..." : ""),24,24);
 
     this.ctx.restore();
   }
@@ -1243,8 +1471,6 @@ export class Game {
       const received = JSON.parse(e.data);
       switch (received.type) {
         case "room_snapshot":
-          console.log("ROOM SNAPSHOT RECEIVED:", received);
-          console.log("IS OWNER FROM SERVER:", received.isOwner);
           this.existingShapes = received.shapes;
           this.sortByZIndex();
           this.isOwnerListener?.(received.isOwner);
@@ -1370,6 +1596,43 @@ export class Game {
           this.sortByZIndex();
           this.needsRender = true;
           break;
+        case "presentation:start": {
+          if (received.roomId !== this.roomId || !received.camera) break;
+
+          this.latestPresentationCamera = received.camera;
+          this.presentationInviteListener?.(true);
+          break;
+        }
+        case "presentation:started": {
+          if (received.roomId !== this.roomId) break;
+          this.isPresentationMode = true;
+          this.isPresentationViewer = false;
+          this.isFollowingPresenter = true;
+          this.presentationStartedListener?.("presenter");
+          break;
+        }
+        case "presentation:camera": {
+          if (received.roomId !== this.roomId || !received.camera) break;
+
+          this.applyPresentationCamera(received.camera);
+          break;
+        }
+        case "presentation:stop":{
+          if (received.roomId !== this.roomId) break;
+          this.presentationEndedListener?.(true);
+        }
+        case "presentation:stopped": {
+          if (received.roomId !== this.roomId) break;
+          this.presentationInviteListener?.(false);
+          this.resetPresentationState();
+          break;
+        }
+        case "presentation:error": {
+          if (received.roomId !== this.roomId) break;
+          const message = received.reason === "presentation_already_active"? "Someone else has already started a presentation in this room.": "Unable to start the presentation. Please try again.";
+          this.presentationErrorListener?.(message);
+          break;
+        }
       }
     };
   }
@@ -1386,6 +1649,10 @@ export class Game {
   }
 
   private keyDownHandler = (e: KeyboardEvent) => {
+    if (this.isPresentationViewer) {
+      e.preventDefault();
+      return;
+    }
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)
       return;
 
@@ -2076,22 +2343,6 @@ export class Game {
         this.cancelTextEditing();
       }
     });
-
-    // console.log("4 before outside listener");
-
-    // this.textEditorOutsideClickHandler = (e: MouseEvent) => {
-    //   if (!this.textEditor) return;
-
-    //   console.log("clicking outside of the textbox",".......",e.target);
-
-    //   if (e.target === this.textEditor) return;
-
-    //   this.finishTextEditing();
-    // };
-
-    // document.addEventListener("mousedown",this.textEditorOutsideClickHandler);
-
-    // console.log("5 outside listener added");
   }
 
   private updateTextEditorSize(){
@@ -2430,6 +2681,8 @@ export class Game {
   }
 
   mouseDownHandler = (e: MouseEvent) => {
+    //if (this.isPresentationViewer &&this.selectedTool !== "hand" &&this.selectedTool !== "laser")return;
+
     if(this.textEditor){
       if(e.target == this.canvas){
         this.finishTextEditing();
@@ -2455,6 +2708,8 @@ export class Game {
       this.needsRender = true;
       return;
     }
+
+    if(this.isPresentationMode)return;
 
     if (this.groupSelection) {
       if (this.pointsInsideBounds(x, y, this.groupSelection.bounds)) {
@@ -2632,6 +2887,7 @@ export class Game {
   mouseUpHandler = (e: MouseEvent) => {
     if (this.isPanning) {
       this.isPanning = false;
+      this.sendPresentationCamera(true);
       this.canvas.style.cursor = "grab";
       return;
     }
@@ -2640,6 +2896,8 @@ export class Game {
       this.isLaserDrawing = false;
       return;
     }
+
+    if(this.isPresentationMode)return;
 
     this.broadcastSelection();
 
@@ -2792,9 +3050,13 @@ export class Game {
       this.panX = e.clientX;
       this.panY = e.clientY;
 
+      this.sendPresentationCamera();
+
       this.needsRender = true;
       return;
     }
+
+    if (this.isPresentationViewer && this.selectedTool !== "laser") return;
 
     let { x: endX, y: endY } = this.getMousePos(e);
 

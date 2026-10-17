@@ -77,9 +77,25 @@ export type Message = {
 } | {
     type : "chats:reset",
     roomId : string
+}| {
+    type: "presentation:start" | "presentation:camera" | "presentation:join";
+    roomId: string;
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+}
+| {
+    type: "presentation:stop";
+    roomId: string;
 }
 
 export type CursorPreview = {
     x: string,
     y: string,
 };
+
+export type Camera = {
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+}
