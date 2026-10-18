@@ -1,5 +1,7 @@
 import { Tool } from "../components/Canvas";
+import jsPDF from "jspdf";
 import {Shape,ShapeStyle,HistoryAction,Cursor,Toast,SelectionBound,RemoteSelection,User, TextShape,} from "./types";
+import { toNamespacedPath } from "path/posix";
 
 export class Game {
   private canvas: HTMLCanvasElement;
@@ -305,17 +307,6 @@ export class Game {
     if (follow && this.latestPresentationCamera) {
       this.applyPresentationCamera(this.latestPresentationCamera);
     }
-  }
-
-  leavePresentation() {
-    this.isPresentationMode = false;
-    this.isPresentationViewer = false;
-    this.isFollowingPresenter = true;
-    this.isPanning = false;
-    this.latestPresentationCamera = null;
-    console.log('ending 316');
-    this.canvas.style.cursor = this.selectedTool === "hand" ? "grab" : "default";
-    this.needsRender = true;
   }
 
   endPresentation() {
@@ -2246,6 +2237,139 @@ export class Game {
       }
     }
     return { left: 0, right: 0, top: 0, bottom: 0 };
+  }
+
+  renderAllShapesToCanvas({ background = "#ffffff" } = {}) {
+    const shapes = this.existingShapes.filter(
+      (shape) => shape.type !== "pencil" || shape.points.length > 0
+    );
+    if (shapes.length === 0) return null;
+
+    const padding = 24;
+    let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+
+    for (const shape of shapes) {
+      const bounds = this.getShapeBounds(shape);
+      const angle = shape.rotation ?? 0;
+      const cx = (bounds.left + bounds.right) / 2;
+      const cy = (bounds.top + bounds.bottom) / 2;          
+
+      const corners = [
+        { x: bounds.left,  y: bounds.top    },
+        { x: bounds.right, y: bounds.top    },
+        { x: bounds.left,  y: bounds.bottom },
+        { x: bounds.right, y: bounds.bottom },
+      ];
+
+      for (const point of corners) {
+        const x = cx + (point.x - cx) * Math.cos(angle) - (point.y - cy) * Math.sin(angle);
+        const y = cy + (point.x - cx) * Math.sin(angle) + (point.y - cy) * Math.cos(angle);
+
+        left   = Math.min(left,   x - shape.strokeWidth);
+        top    = Math.min(top,    y - shape.strokeWidth);
+        right  = Math.max(right,  x + shape.strokeWidth);
+        bottom = Math.max(bottom, y + shape.strokeWidth);
+      }
+    }
+
+    if (!isFinite(left) || !isFinite(top) || !isFinite(right) || !isFinite(bottom)) {
+      return null;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width  = Math.ceil(right - left + padding * 2);
+    canvas.height = Math.ceil(bottom - top + padding * 2);
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+
+    if (background) {
+      ctx.fillStyle = background;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    const originalCtx = this.ctx;
+    const originalScale = this.scale;
+    try {
+      this.ctx = ctx;
+      this.scale = 1;
+      this.ctx.translate(padding - left, padding - top);
+      shapes.forEach((shape) => this.drawShape(shape));
+    } finally {
+      this.ctx = originalCtx;
+      this.scale = originalScale;
+    }
+
+    return canvas;
+  }
+
+  exportPNG() {
+    const canvas = this.renderAllShapesToCanvas({background:"#ffffff"});
+    if (!canvas) {
+      this.toastListener?.({ message: "Nothing to export", color: "#ef4444" });
+      return;
+    }
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "whiteboard.png";
+      link.click();
+      URL.revokeObjectURL(url);
+    }, "image/png");
+  }
+
+  exportSVG() {
+    const canvas = this.renderAllShapesToCanvas({background:"#ffffff"});
+    if (!canvas) {
+      this.toastListener?.({ message: "Nothing to export", color: "#ef4444" });
+      return;
+    }
+    const dataUrl = canvas.toDataURL("image/png");
+    const svg = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="${canvas.width}" height="${canvas.height}">
+        <image href="${dataUrl}" width="${canvas.width}" height="${canvas.height}" />
+      </svg>`;
+    const blob = new Blob([svg], { type: "image/svg+xml" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "whiteboard.svg";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  exportPDF() {
+    const canvas = this.renderAllShapesToCanvas({background:"#ffffff"});
+    if (!canvas) {
+      this.toastListener?.({ message: "Nothing to export", color: "#ef4444" });
+      return;
+    }
+    const imgData = canvas.toDataURL("image/png");
+
+    const isLandscape = canvas.width >= canvas.height;
+    const pdf = new jsPDF(isLandscape ? "l" : "p", "mm", "a4");
+
+    const pageWidth  = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgRatio   = canvas.width / canvas.height;
+    const pageRatio  = pageWidth / pageHeight;
+
+    let drawWidth, drawHeight;
+    if (imgRatio > pageRatio) {
+      drawWidth  = pageWidth;
+      drawHeight = pageWidth / imgRatio;
+    } else {
+      drawHeight = pageHeight;
+      drawWidth  = pageHeight * imgRatio;
+    }
+
+    const x = (pageWidth  - drawWidth)  / 2;
+    const y = (pageHeight - drawHeight) / 2;
+
+    pdf.addImage(imgData, "PNG", x, y, drawWidth, drawHeight);
+    pdf.save("whiteboard.pdf");
   }
 
   private getGroupBounds(ids: Set<string>) {

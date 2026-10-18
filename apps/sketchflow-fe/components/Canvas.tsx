@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Hand,Circle,Diamond,Pencil,Minus,MousePointer2,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic, Maximize, PaintRoller, MonitorPlay} from "lucide-react";
+import { Hand,Circle,Diamond,Pencil,Minus,Download, FileImage, FileCode2, FileText,RectangleHorizontalIcon,ZoomIn,ZoomOut,Undo2,Redo2,LockKeyholeOpen,LockKeyhole,ArrowRight,MousePointer,CopyPlus,Trash2,Grid3X3,Grid2X2Check,MoveUp,MoveDown,BringToFront,SendToBack,Users,X,Type, AlignCenter, AlignLeft, AlignRight, Bold, Italic, Maximize, PaintRoller, MonitorPlay} from "lucide-react";
 import { Game } from "@/draw/Game";
 import { useRouter } from "next/navigation";
 import { Toast,User,PresentationModalConfig } from "@/draw/types";
@@ -63,6 +63,8 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
   const [viewerMode, setViewerMode] = useState<"follow" | "explore">("follow");
 
   const [presentationInviteOpen, setPresentationInviteOpen] = useState(false);
+
+  const [showExportModal, setShowExportModal] = useState(false);
 
   useEffect(() => {
     if (canvasref.current) {
@@ -321,10 +323,7 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         title: "Presentation Ended",
         message: "The presenter has ended the presentation. You can now use the whiteboard normally.",
         buttonText: "Continue",
-        onAction: () => {
-          game?.resetCanvas();
-          setPresentationModal(null)
-        },
+        onAction: () => setPresentationModal(null),
         buttonVariant: "purple"
       });
       }
@@ -344,6 +343,23 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
         width={window.innerWidth}
         height={window.innerHeight}
       ></canvas>
+
+      {!isPresentationMode && (
+        <button
+          onClick={() => setShowExportModal(true)}
+          title="Export whiteboard"
+          aria-label="Export whiteboard"
+          className="fixed top-5 left-5 z-50 flex items-center gap-2
+            rounded-xl bg-green-600 border border-white/10
+            px-3.5 py-2.5 text-sm font-medium text-white
+            shadow-lg backdrop-blur-xl transition cursor-pointer
+            hover:bg-green-800"
+        >
+          <Download size={17} />
+          Export
+        </button>
+      )}
+
       {!isPresentationMode && <Topbar
         strokeColor={strokeColor}
         setSelectedTool={setSelectedTool}
@@ -919,6 +935,123 @@ export function Canvas({roomId,socket,}: { roomId: string; socket: WebSocket}) {
           onAction={onJoinPresentation}
           buttonVariant="purple"
         />
+      )}
+
+      {showExportModal && !isPresentationMode && (
+          <div
+            className="fixed inset-0 z-100 flex items-center justify-center
+              bg-black/60 p-4 backdrop-blur-sm"
+            onMouseDown={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowExportModal(false);
+              }
+            }}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-modal-title"
+              className="w-full max-w-md rounded-2xl border border-white/10
+                bg-neutral-950 p-5 text-white shadow-2xl"
+            >
+              <div className="mb-5 flex items-start justify-between">
+                <div>
+                  <h2
+                    id="export-modal-title"
+                    className="text-lg font-semibold"
+                  >
+                    Export whiteboard
+                  </h2>
+                  <p className="mt-1 text-sm text-neutral-400">
+                    Choose a format to download your drawing.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  aria-label="Close export modal"
+                  className="rounded-lg p-2 text-neutral-400
+                    transition hover:bg-white/10 hover:text-white"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    game?.exportPNG();
+                  }}
+                  className="group flex w-full items-center gap-4 rounded-xl
+                    border border-white/10 bg-white/3 p-4 text-left
+                    transition hover:border-emerald-500/50 hover:bg-emerald-500/10"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center
+                    rounded-xl bg-emerald-500/15 text-emerald-400">
+                    <FileImage size={22} />
+                  </div>
+                  <div className="flex-1 cursor-pointer">
+                    <p className="font-medium">PNG</p>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      Image export for sharing.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    game?.exportSVG();
+                  }}
+                  className="group flex w-full items-center gap-4 rounded-xl
+                    border border-white/10 bg-white/3 p-4 text-left
+                    transition hover:border-blue-500/50 hover:bg-blue-500/10"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center
+                    rounded-xl bg-blue-500/15 text-blue-400">
+                    <FileCode2 size={22} />
+                  </div>
+                  <div className="flex-1 cursor-pointer">
+                    <p className="font-medium">SVG</p>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      Scalable vector drawing.
+                    </p>
+                  </div>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setShowExportModal(false);
+                    game?.exportPDF();
+                  }}
+                  className="group flex w-full items-center gap-4 rounded-xl
+                    border border-white/10 bg-white/3 p-4 text-left
+                    transition hover:border-red-500/50 hover:bg-red-500/10"
+                >
+                  <div className="flex h-11 w-11 items-center justify-center
+                    rounded-xl bg-red-500/15 text-red-400">
+                    <FileText size={22} />
+                  </div>
+                  <div className="flex-1 cursor-pointer">
+                    <p className="font-medium">PDF</p>
+                    <p className="mt-1 text-sm text-neutral-400">
+                      Document for printing and sharing.
+                    </p>
+                  </div>
+                </button>
+              </div>
+
+              <button
+                onClick={() => setShowExportModal(false)}
+                className="mt-5 w-full rounded-xl border border-white/10
+                  px-4 py-2.5 text-sm text-neutral-300 transition
+                  hover:bg-white/5"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
       )}
 
     </div>

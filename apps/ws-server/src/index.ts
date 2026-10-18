@@ -349,6 +349,8 @@ wss.on("connection", (ws, request) => {
 
           const roomId = parsedData.roomId;
 
+          if(presentations.has(roomId))return;
+
           broadcastToRoom(ws,"selection:update",roomId,{
             shapeIds: parsedData.shapeIds as string[],
             editing: parsedData.editing
@@ -366,6 +368,8 @@ wss.on("connection", (ws, request) => {
 
             const roomId = parsedData.roomId;
             const shape = parsedData.shape;
+
+            if(presentations.has(roomId))return;
 
             //console.time("broadcast");
             broadcastToRoom(ws, "shape:preview", roomId, shape);
@@ -387,6 +391,8 @@ wss.on("connection", (ws, request) => {
 
             const roomId = parsedData.roomId;
             const shape = parsedData.shape;
+
+            if(presentations.has(roomId))return;
 
             //console.time("broadcast");
             broadcastToRoom(ws, "shape:add", roomId, shape);
@@ -422,6 +428,8 @@ wss.on("connection", (ws, request) => {
 
             const roomId = parsedData.roomId;
             const shapes = parsedData.shapes;
+
+            if(presentations.has(roomId))return;
 
             //console.time("broadcast");
             broadcastToRoom(ws, "shapes:add", roomId, shapes);
@@ -463,6 +471,8 @@ wss.on("connection", (ws, request) => {
               },
             });
 
+            if(presentations.has(roomId))return;
+
             //console.time("broadcast");
             broadcastToRoom(ws, "shape:delete", roomId, { id : parsedData.shape.id } as Shape);
             //console.timeEnd("broadcast");
@@ -499,6 +509,8 @@ wss.on("connection", (ws, request) => {
 
             const roomId = parsedData.roomId;
             const shapeIds = parsedData.shapeIds;
+
+            if(presentations.has(roomId))return;
 
             //console.time("broadcast");
             broadcastToRoom(ws, "shapes:delete", roomId, shapeIds);
@@ -539,6 +551,8 @@ wss.on("connection", (ws, request) => {
                 shapeId: parsedData.shape.id,
               },
             });
+
+            if(presentations.has(roomId))return;
 
             //console.time("broadcast");
             broadcastToRoom(ws, "shape:update", roomId, updatedShape);
@@ -584,6 +598,8 @@ wss.on("connection", (ws, request) => {
             broadcastToRoom(ws, "shapes:update", roomId, updatedShapes);
             //console.timeEnd("broadcast");
 
+            if(presentations.has(roomId))return;
+
             //console.time("db:update");
             if (!roomId.startsWith("guest")) {
               //updating in db
@@ -614,6 +630,8 @@ wss.on("connection", (ws, request) => {
 
             const roomId = parsedData.roomId;
             const action = parsedData.action;
+
+            if(presentations.has(roomId))return;
 
             console.log('received undo action');
 
@@ -797,6 +815,8 @@ wss.on("connection", (ws, request) => {
             const roomId = parsedData.roomId;
             const action = parsedData.action;
 
+            if(presentations.has(roomId))return;
+
             switch(action.type){
             case "add":
                 broadcastToRoom(ws, "shape:add", roomId, action.shape);
@@ -967,6 +987,8 @@ wss.on("connection", (ws, request) => {
             const roomId = parsedData.roomId;
             const shapes = parsedData.shapes;
 
+            if(presentations.has(roomId))return;
+
             broadcastToRoom(ws,"layer:update",roomId,shapes);
 
             if(!roomId.startsWith('guest')){
@@ -993,6 +1015,8 @@ wss.on("connection", (ws, request) => {
           if (!rooms.get(parsedData.roomId)?.has(ws)) return;
 
           const roomId = parsedData.roomId;
+
+          if(presentations.has(roomId))return;
 
           const room = await prismaClient.room.findUnique({
             where:{
