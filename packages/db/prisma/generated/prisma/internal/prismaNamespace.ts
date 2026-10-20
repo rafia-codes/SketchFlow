@@ -386,7 +386,8 @@ type FieldRefInputType<Model, FieldType> = Model extends never ? never : FieldRe
 export const ModelName = {
   User: 'User',
   Room: 'Room',
-  Chat: 'Chat'
+  Chat: 'Chat',
+  BoardVersion: 'BoardVersion'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -402,7 +403,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "room" | "chat"
+    modelProps: "user" | "room" | "chat" | "boardVersion"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -628,6 +629,80 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    BoardVersion: {
+      payload: Prisma.$BoardVersionPayload<ExtArgs>
+      fields: Prisma.BoardVersionFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.BoardVersionFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.BoardVersionFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        findFirst: {
+          args: Prisma.BoardVersionFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.BoardVersionFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        findMany: {
+          args: Prisma.BoardVersionFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>[]
+        }
+        create: {
+          args: Prisma.BoardVersionCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        createMany: {
+          args: Prisma.BoardVersionCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.BoardVersionCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>[]
+        }
+        delete: {
+          args: Prisma.BoardVersionDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        update: {
+          args: Prisma.BoardVersionUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        deleteMany: {
+          args: Prisma.BoardVersionDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.BoardVersionUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.BoardVersionUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>[]
+        }
+        upsert: {
+          args: Prisma.BoardVersionUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$BoardVersionPayload>
+        }
+        aggregate: {
+          args: Prisma.BoardVersionAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateBoardVersion>
+        }
+        groupBy: {
+          args: Prisma.BoardVersionGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.BoardVersionGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.BoardVersionCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.BoardVersionCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -693,10 +768,21 @@ export const ChatScalarFieldEnum = {
   shapeId: 'shapeId',
   roomId: 'roomId',
   message: 'message',
-  userId: 'userId'
+  userId: 'userId',
+  zIndex: 'zIndex'
 } as const
 
 export type ChatScalarFieldEnum = (typeof ChatScalarFieldEnum)[keyof typeof ChatScalarFieldEnum]
+
+
+export const BoardVersionScalarFieldEnum = {
+  id: 'id',
+  roomId: 'roomId',
+  snapshot: 'snapshot',
+  createdAt: 'createdAt'
+} as const
+
+export type BoardVersionScalarFieldEnum = (typeof BoardVersionScalarFieldEnum)[keyof typeof BoardVersionScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -705,6 +791,13 @@ export const SortOrder = {
 } as const
 
 export type SortOrder = (typeof SortOrder)[keyof typeof SortOrder]
+
+
+export const JsonNullValueInput = {
+  JsonNull: JsonNull
+} as const
+
+export type JsonNullValueInput = (typeof JsonNullValueInput)[keyof typeof JsonNullValueInput]
 
 
 export const QueryMode = {
@@ -721,6 +814,15 @@ export const NullsOrder = {
 } as const
 
 export type NullsOrder = (typeof NullsOrder)[keyof typeof NullsOrder]
+
+
+export const JsonNullValueFilter = {
+  DbNull: DbNull,
+  JsonNull: JsonNull,
+  AnyNull: AnyNull
+} as const
+
+export type JsonNullValueFilter = (typeof JsonNullValueFilter)[keyof typeof JsonNullValueFilter]
 
 
 
@@ -768,6 +870,20 @@ export type DateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel
  * Reference to a field of type 'DateTime[]'
  */
 export type ListDateTimeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'DateTime[]'>
+    
+
+
+/**
+ * Reference to a field of type 'Json'
+ */
+export type JsonFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'Json'>
+    
+
+
+/**
+ * Reference to a field of type 'QueryMode'
+ */
+export type EnumQueryModeFieldRefInput<$PrismaModel> = FieldRefInputType<$PrismaModel, 'QueryMode'>
     
 
 
@@ -882,6 +998,7 @@ export type GlobalOmitConfig = {
   user?: Prisma.UserOmit
   room?: Prisma.RoomOmit
   chat?: Prisma.ChatOmit
+  boardVersion?: Prisma.BoardVersionOmit
 }
 
 /* Types for Logging */

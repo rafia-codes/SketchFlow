@@ -210,6 +210,7 @@ export type RoomWhereInput = {
   adminId?: Prisma.StringFilter<"Room"> | string
   admin?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   chats?: Prisma.ChatListRelationFilter
+  boardVersions?: Prisma.BoardVersionListRelationFilter
 }
 
 export type RoomOrderByWithRelationInput = {
@@ -219,6 +220,7 @@ export type RoomOrderByWithRelationInput = {
   adminId?: Prisma.SortOrder
   admin?: Prisma.UserOrderByWithRelationInput
   chats?: Prisma.ChatOrderByRelationAggregateInput
+  boardVersions?: Prisma.BoardVersionOrderByRelationAggregateInput
 }
 
 export type RoomWhereUniqueInput = Prisma.AtLeast<{
@@ -231,6 +233,7 @@ export type RoomWhereUniqueInput = Prisma.AtLeast<{
   adminId?: Prisma.StringFilter<"Room"> | string
   admin?: Prisma.XOR<Prisma.UserScalarRelationFilter, Prisma.UserWhereInput>
   chats?: Prisma.ChatListRelationFilter
+  boardVersions?: Prisma.BoardVersionListRelationFilter
 }, "id" | "slug">
 
 export type RoomOrderByWithAggregationInput = {
@@ -260,6 +263,7 @@ export type RoomCreateInput = {
   createdAt?: Date | string
   admin: Prisma.UserCreateNestedOneWithoutRoomsInput
   chats?: Prisma.ChatCreateNestedManyWithoutRoomInput
+  boardVersions?: Prisma.BoardVersionCreateNestedManyWithoutRoomInput
 }
 
 export type RoomUncheckedCreateInput = {
@@ -268,6 +272,7 @@ export type RoomUncheckedCreateInput = {
   createdAt?: Date | string
   adminId: string
   chats?: Prisma.ChatUncheckedCreateNestedManyWithoutRoomInput
+  boardVersions?: Prisma.BoardVersionUncheckedCreateNestedManyWithoutRoomInput
 }
 
 export type RoomUpdateInput = {
@@ -275,6 +280,7 @@ export type RoomUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   admin?: Prisma.UserUpdateOneRequiredWithoutRoomsNestedInput
   chats?: Prisma.ChatUpdateManyWithoutRoomNestedInput
+  boardVersions?: Prisma.BoardVersionUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomUncheckedUpdateInput = {
@@ -283,6 +289,7 @@ export type RoomUncheckedUpdateInput = {
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   adminId?: Prisma.StringFieldUpdateOperationsInput | string
   chats?: Prisma.ChatUncheckedUpdateManyWithoutRoomNestedInput
+  boardVersions?: Prisma.BoardVersionUncheckedUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomCreateManyInput = {
@@ -416,10 +423,25 @@ export type RoomUpdateOneRequiredWithoutChatsNestedInput = {
   update?: Prisma.XOR<Prisma.XOR<Prisma.RoomUpdateToOneWithWhereWithoutChatsInput, Prisma.RoomUpdateWithoutChatsInput>, Prisma.RoomUncheckedUpdateWithoutChatsInput>
 }
 
+export type RoomCreateNestedOneWithoutBoardVersionsInput = {
+  create?: Prisma.XOR<Prisma.RoomCreateWithoutBoardVersionsInput, Prisma.RoomUncheckedCreateWithoutBoardVersionsInput>
+  connectOrCreate?: Prisma.RoomCreateOrConnectWithoutBoardVersionsInput
+  connect?: Prisma.RoomWhereUniqueInput
+}
+
+export type RoomUpdateOneRequiredWithoutBoardVersionsNestedInput = {
+  create?: Prisma.XOR<Prisma.RoomCreateWithoutBoardVersionsInput, Prisma.RoomUncheckedCreateWithoutBoardVersionsInput>
+  connectOrCreate?: Prisma.RoomCreateOrConnectWithoutBoardVersionsInput
+  upsert?: Prisma.RoomUpsertWithoutBoardVersionsInput
+  connect?: Prisma.RoomWhereUniqueInput
+  update?: Prisma.XOR<Prisma.XOR<Prisma.RoomUpdateToOneWithWhereWithoutBoardVersionsInput, Prisma.RoomUpdateWithoutBoardVersionsInput>, Prisma.RoomUncheckedUpdateWithoutBoardVersionsInput>
+}
+
 export type RoomCreateWithoutAdminInput = {
   slug: string
   createdAt?: Date | string
   chats?: Prisma.ChatCreateNestedManyWithoutRoomInput
+  boardVersions?: Prisma.BoardVersionCreateNestedManyWithoutRoomInput
 }
 
 export type RoomUncheckedCreateWithoutAdminInput = {
@@ -427,6 +449,7 @@ export type RoomUncheckedCreateWithoutAdminInput = {
   slug: string
   createdAt?: Date | string
   chats?: Prisma.ChatUncheckedCreateNestedManyWithoutRoomInput
+  boardVersions?: Prisma.BoardVersionUncheckedCreateNestedManyWithoutRoomInput
 }
 
 export type RoomCreateOrConnectWithoutAdminInput = {
@@ -469,6 +492,7 @@ export type RoomCreateWithoutChatsInput = {
   slug: string
   createdAt?: Date | string
   admin: Prisma.UserCreateNestedOneWithoutRoomsInput
+  boardVersions?: Prisma.BoardVersionCreateNestedManyWithoutRoomInput
 }
 
 export type RoomUncheckedCreateWithoutChatsInput = {
@@ -476,6 +500,7 @@ export type RoomUncheckedCreateWithoutChatsInput = {
   slug: string
   createdAt?: Date | string
   adminId: string
+  boardVersions?: Prisma.BoardVersionUncheckedCreateNestedManyWithoutRoomInput
 }
 
 export type RoomCreateOrConnectWithoutChatsInput = {
@@ -498,6 +523,7 @@ export type RoomUpdateWithoutChatsInput = {
   slug?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   admin?: Prisma.UserUpdateOneRequiredWithoutRoomsNestedInput
+  boardVersions?: Prisma.BoardVersionUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomUncheckedUpdateWithoutChatsInput = {
@@ -505,6 +531,53 @@ export type RoomUncheckedUpdateWithoutChatsInput = {
   slug?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   adminId?: Prisma.StringFieldUpdateOperationsInput | string
+  boardVersions?: Prisma.BoardVersionUncheckedUpdateManyWithoutRoomNestedInput
+}
+
+export type RoomCreateWithoutBoardVersionsInput = {
+  slug: string
+  createdAt?: Date | string
+  admin: Prisma.UserCreateNestedOneWithoutRoomsInput
+  chats?: Prisma.ChatCreateNestedManyWithoutRoomInput
+}
+
+export type RoomUncheckedCreateWithoutBoardVersionsInput = {
+  id?: number
+  slug: string
+  createdAt?: Date | string
+  adminId: string
+  chats?: Prisma.ChatUncheckedCreateNestedManyWithoutRoomInput
+}
+
+export type RoomCreateOrConnectWithoutBoardVersionsInput = {
+  where: Prisma.RoomWhereUniqueInput
+  create: Prisma.XOR<Prisma.RoomCreateWithoutBoardVersionsInput, Prisma.RoomUncheckedCreateWithoutBoardVersionsInput>
+}
+
+export type RoomUpsertWithoutBoardVersionsInput = {
+  update: Prisma.XOR<Prisma.RoomUpdateWithoutBoardVersionsInput, Prisma.RoomUncheckedUpdateWithoutBoardVersionsInput>
+  create: Prisma.XOR<Prisma.RoomCreateWithoutBoardVersionsInput, Prisma.RoomUncheckedCreateWithoutBoardVersionsInput>
+  where?: Prisma.RoomWhereInput
+}
+
+export type RoomUpdateToOneWithWhereWithoutBoardVersionsInput = {
+  where?: Prisma.RoomWhereInput
+  data: Prisma.XOR<Prisma.RoomUpdateWithoutBoardVersionsInput, Prisma.RoomUncheckedUpdateWithoutBoardVersionsInput>
+}
+
+export type RoomUpdateWithoutBoardVersionsInput = {
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  admin?: Prisma.UserUpdateOneRequiredWithoutRoomsNestedInput
+  chats?: Prisma.ChatUpdateManyWithoutRoomNestedInput
+}
+
+export type RoomUncheckedUpdateWithoutBoardVersionsInput = {
+  id?: Prisma.IntFieldUpdateOperationsInput | number
+  slug?: Prisma.StringFieldUpdateOperationsInput | string
+  createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
+  adminId?: Prisma.StringFieldUpdateOperationsInput | string
+  chats?: Prisma.ChatUncheckedUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomCreateManyAdminInput = {
@@ -517,6 +590,7 @@ export type RoomUpdateWithoutAdminInput = {
   slug?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   chats?: Prisma.ChatUpdateManyWithoutRoomNestedInput
+  boardVersions?: Prisma.BoardVersionUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomUncheckedUpdateWithoutAdminInput = {
@@ -524,6 +598,7 @@ export type RoomUncheckedUpdateWithoutAdminInput = {
   slug?: Prisma.StringFieldUpdateOperationsInput | string
   createdAt?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   chats?: Prisma.ChatUncheckedUpdateManyWithoutRoomNestedInput
+  boardVersions?: Prisma.BoardVersionUncheckedUpdateManyWithoutRoomNestedInput
 }
 
 export type RoomUncheckedUpdateManyWithoutAdminInput = {
@@ -539,10 +614,12 @@ export type RoomUncheckedUpdateManyWithoutAdminInput = {
 
 export type RoomCountOutputType = {
   chats: number
+  boardVersions: number
 }
 
 export type RoomCountOutputTypeSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   chats?: boolean | RoomCountOutputTypeCountChatsArgs
+  boardVersions?: boolean | RoomCountOutputTypeCountBoardVersionsArgs
 }
 
 /**
@@ -562,6 +639,13 @@ export type RoomCountOutputTypeCountChatsArgs<ExtArgs extends runtime.Types.Exte
   where?: Prisma.ChatWhereInput
 }
 
+/**
+ * RoomCountOutputType without action
+ */
+export type RoomCountOutputTypeCountBoardVersionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  where?: Prisma.BoardVersionWhereInput
+}
+
 
 export type RoomSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetSelect<{
   id?: boolean
@@ -570,6 +654,7 @@ export type RoomSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   adminId?: boolean
   admin?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   chats?: boolean | Prisma.Room$chatsArgs<ExtArgs>
+  boardVersions?: boolean | Prisma.Room$boardVersionsArgs<ExtArgs>
   _count?: boolean | Prisma.RoomCountOutputTypeDefaultArgs<ExtArgs>
 }, ExtArgs["result"]["room"]>
 
@@ -600,6 +685,7 @@ export type RoomOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = run
 export type RoomInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   admin?: boolean | Prisma.UserDefaultArgs<ExtArgs>
   chats?: boolean | Prisma.Room$chatsArgs<ExtArgs>
+  boardVersions?: boolean | Prisma.Room$boardVersionsArgs<ExtArgs>
   _count?: boolean | Prisma.RoomCountOutputTypeDefaultArgs<ExtArgs>
 }
 export type RoomIncludeCreateManyAndReturn<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
@@ -614,6 +700,7 @@ export type $RoomPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
   objects: {
     admin: Prisma.$UserPayload<ExtArgs>
     chats: Prisma.$ChatPayload<ExtArgs>[]
+    boardVersions: Prisma.$BoardVersionPayload<ExtArgs>[]
   }
   scalars: runtime.Types.Extensions.GetPayloadResult<{
     id: number
@@ -1016,6 +1103,7 @@ export interface Prisma__RoomClient<T, Null = never, ExtArgs extends runtime.Typ
   readonly [Symbol.toStringTag]: "PrismaPromise"
   admin<T extends Prisma.UserDefaultArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.UserDefaultArgs<ExtArgs>>): Prisma.Prisma__UserClient<runtime.Types.Result.GetResult<Prisma.$UserPayload<ExtArgs>, T, "findUniqueOrThrow", GlobalOmitOptions> | Null, Null, ExtArgs, GlobalOmitOptions>
   chats<T extends Prisma.Room$chatsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Room$chatsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$ChatPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
+  boardVersions<T extends Prisma.Room$boardVersionsArgs<ExtArgs> = {}>(args?: Prisma.Subset<T, Prisma.Room$boardVersionsArgs<ExtArgs>>): Prisma.PrismaPromise<runtime.Types.Result.GetResult<Prisma.$BoardVersionPayload<ExtArgs>, T, "findMany", GlobalOmitOptions> | Null>
   /**
    * Attaches callbacks for the resolution and/or rejection of the Promise.
    * @param onfulfilled The callback to execute when the Promise is resolved.
@@ -1466,6 +1554,30 @@ export type Room$chatsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs
   take?: number
   skip?: number
   distinct?: Prisma.ChatScalarFieldEnum | Prisma.ChatScalarFieldEnum[]
+}
+
+/**
+ * Room.boardVersions
+ */
+export type Room$boardVersionsArgs<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
+  /**
+   * Select specific fields to fetch from the BoardVersion
+   */
+  select?: Prisma.BoardVersionSelect<ExtArgs> | null
+  /**
+   * Omit specific fields from the BoardVersion
+   */
+  omit?: Prisma.BoardVersionOmit<ExtArgs> | null
+  /**
+   * Choose, which related nodes to fetch as well
+   */
+  include?: Prisma.BoardVersionInclude<ExtArgs> | null
+  where?: Prisma.BoardVersionWhereInput
+  orderBy?: Prisma.BoardVersionOrderByWithRelationInput | Prisma.BoardVersionOrderByWithRelationInput[]
+  cursor?: Prisma.BoardVersionWhereUniqueInput
+  take?: number
+  skip?: number
+  distinct?: Prisma.BoardVersionScalarFieldEnum | Prisma.BoardVersionScalarFieldEnum[]
 }
 
 /**

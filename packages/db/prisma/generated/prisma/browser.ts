@@ -32,3 +32,8 @@ export type Room = Prisma.RoomModel
  * 
  */
 export type Chat = Prisma.ChatModel
+/**
+ * Model BoardVersion
+ * 
+ */
+export type BoardVersion = Prisma.BoardVersionModel

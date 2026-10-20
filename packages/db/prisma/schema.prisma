@@ -18,12 +18,13 @@ model User {
 }
 
 model Room {
-  id          Int       @id @default(autoincrement())
-  slug        String    @unique
-  createdAt   DateTime  @default(now())
-  adminId     String
-  admin       User      @relation(fields: [adminId], references: [id])
-  chats       Chat[]
+  id            Int            @id @default(autoincrement())
+  slug          String         @unique
+  createdAt     DateTime       @default(now())
+  adminId       String
+  admin         User           @relation(fields: [adminId], references: [id])
+  chats         Chat[]
+  boardVersions BoardVersion[]
 }
 
 model Chat {
@@ -37,4 +38,15 @@ model Chat {
   user      User      @relation(fields: [userId], references: [id])
 
   @@index([roomId])
+}
+
+model BoardVersion {
+  id        String   @id @default(uuid())
+  roomId    Int
+  snapshot  Json
+  createdAt DateTime @default(now())
+
+  room      Room     @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
 }
